@@ -1,7 +1,7 @@
 import {
-  CONFIG, INTERVAL_MS, analyze, baseAsset, dataSource, ema, fetchKlines, fetchTickers, rsi, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js";
-import { startGlobe } from "./globe.js";
+  CONFIG, INTERVAL_MS, analyze, attempts, baseAsset, dataSource, ema, fetchKlines, fetchTickers, rsi, sides, topSymbols, tradeUrl, usesFilter,
+} from "./engine.js?v=3";
+import { startGlobe } from "./globe.js?v=3";
 
 const $ = (s) => document.querySelector(s);
 const TFS = CONFIG.TIMEFRAMES;
@@ -677,6 +677,18 @@ function renderTimebar() {
   }).join("") + `<span>Sinyal baru hanya muncul saat candle tutup</span>`;
 }
 
+// Panel diagnosis: buka situs dengan ?debug
+if (/[?&]debug/.test(location.search)) {
+  const box = document.createElement("pre");
+  box.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:200;max-width:min(92vw,720px);max-height:45vh;overflow:auto;margin:0;padding:12px;border-radius:12px;background:rgba(0,0,0,.85);color:#fff;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap";
+  document.body.appendChild(box);
+  setInterval(() => {
+    box.textContent = `Sumber: ${dataSource() || "belum ada"} · koin: ${S.symbols.length} · dianalisis: ${Object.keys(S.res).length}\n` + attempts.slice(-14).map((a) => `${a.ok ? "OK " : "GAGAL"} ${a.ms}ms ${a.url.split("?")[0]}${a.error ? " → " + a.error : ""}`).join("\n");
+  }, 1000);
+}
+
+$("#coins").innerHTML = `<p class="empty">Memuat data dari Binance…</p>`;
+$("#hs-btc").textContent = "memuat…";
 renderChartControls();
 renderTimebar();
 init();

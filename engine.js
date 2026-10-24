@@ -210,6 +210,8 @@ const SOURCES = [
 ];
 let source = null;
 export const dataSource = () => source?.kind ?? null;
+/** Catatan percobaan koneksi (untuk diagnosis: buka situs dengan ?debug). */
+export const attempts = [];
 
 async function fetchWithTimeout(fetchImpl, url, ms) {
   const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -222,14 +224,17 @@ async function getJson(path, params = {}, fetchImpl = globalThis.fetch) {
   let lastError;
   for (const src of candidates) {
     const url = `${src.base}${src.p}${path}?${new URLSearchParams(params)}`;
+    const t0 = Date.now();
     try {
       const resp = await fetchWithTimeout(fetchImpl, url, source ? 15000 : 7000);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
+      if (!source || attempts.length < 40) attempts.push({ url, ok: true, ms: Date.now() - t0 });
       source = src;
       return json;
     } catch (e) {
       lastError = e;
+      attempts.push({ url, ok: false, ms: Date.now() - t0, error: e.name === "AbortError" ? "timeout (tidak ada jawaban)" : String(e.message || e) });
     }
   }
   throw new Error(`Binance tidak bisa dihubungi (${lastError?.message || lastError})`);
