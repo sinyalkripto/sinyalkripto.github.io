@@ -1,5 +1,5 @@
 import {
-  CONFIG, INTERVAL_MS, analyze, baseAsset, ema, fetchKlines, fetchTickers, rsi, sides, topSymbols, tradeUrl, usesFilter,
+  CONFIG, INTERVAL_MS, analyze, baseAsset, dataSource, ema, fetchKlines, fetchTickers, rsi, sides, topSymbols, tradeUrl, usesFilter,
 } from "./engine.js";
 import { startGlobe } from "./globe.js";
 
@@ -151,6 +151,9 @@ async function init() {
     S.symbols.forEach((s) => { S.info[s.symbol] = s; S.prices[s.symbol] = s.price; });
     if (!S.info[S.sel]) S.sel = S.symbols[0].symbol;
     renderCoins();
+    if (dataSource() === "spot") {
+      $("#pasar .section-sub").textContent = "Binance Futures tidak bisa diakses dari jaringan Anda, jadi harga diambil dari Binance Spot (selisihnya biasanya sangat kecil). Klik koin untuk membuka grafiknya.";
+    }
     splashProgress(30, `Membaca harga ${S.symbols.length} koin…`);
     let done = 0;
     const first = [];
@@ -169,7 +172,10 @@ async function init() {
   } catch (e) {
     console.error(e);
     hideSplash();
-    $("#coins").innerHTML = `<p class="empty">Data Binance tidak bisa diambil (${esc(e.message)}). Kemungkinan jaringan Anda memblokir Binance; coba jaringan lain atau VPN, lalu muat ulang halaman.</p>`;
+    const msg = `Data Binance tidak bisa diambil (${esc(e.message)}). Kemungkinan jaringan atau ekstensi browser Anda (misalnya pemblokir iklan) memblokir Binance. Coba nonaktifkan ekstensi itu untuk situs ini, pakai jaringan lain, lalu muat ulang halaman.`;
+    $("#coins").innerHTML = `<p class="disclaimer">${msg}</p>`;
+    $("#chart-title").innerHTML = `<p class="disclaimer" style="margin:0">${msg}</p>`;
+    $("#hs-btc").textContent = "tidak tersedia";
   }
 }
 

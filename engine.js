@@ -25,7 +25,6 @@ export const CONFIG = {
 };
 
 const C = CONFIG;
-export const BASE_URL = "https://fapi.binance.com";
 export const INTERVAL_MS = { "1m": 6e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------
@@ -202,42 +201,86 @@ const toCandles = (raw) => raw.map((k) => ({
   time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5],
 }));
 
+// Sumber data, dicoba berurutan. Kalau Binance Futures diblokir di jaringan pengunjung,
+// dipakai data Spot (harga hampir sama; sinyal dihitung dengan cara yang sama).
+const SOURCES = [
+  { base: "https://fapi.binance.com", kind: "futures", p: "/fapi/v1" },
+  { base: "https://data-api.binance.vision", kind: "spot", p: "/api/v3" },
+  { base: "https://api.binance.com", kind: "spot", p: "/api/v3" },
+];
+let source = null;
+export const dataSource = () => source?.kind ?? null;
+
+async function fetchWithTimeout(fetchImpl, url, ms) {
+  const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctl && setTimeout(() => ctl.abort(), ms);
+  try { return await fetchImpl(url, ctl ? { signal: ctl.signal } : undefined); } finally { if (timer) clearTimeout(timer); }
+}
+
 async function getJson(path, params = {}, fetchImpl = globalThis.fetch) {
-  const url = `${BASE_URL}${path}?${new URLSearchParams(params)}`;
-  const resp = await fetchImpl(url);
-  if (!resp.ok) throw new Error(`Binance ${resp.status} untuk ${path}`);
-  return resp.json();
+  const candidates = source ? [source] : SOURCES;
+  let lastError;
+  for (const src of candidates) {
+    const url = `${src.base}${src.p}${path}?${new URLSearchParams(params)}`;
+    try {
+      const resp = await fetchWithTimeout(fetchImpl, url, source ? 15000 : 7000);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      source = src;
+      return json;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw new Error(`Binance tidak bisa dihubungi (${lastError?.message || lastError})`);
 }
 
 /** Candle yang sudah close + candle yang sedang berjalan (terpisah). */
 export async function fetchKlines(symbol, interval, limit = C.CANDLE_LIMIT, fetchImpl) {
-  const all = toCandles(await getJson("/fapi/v1/klines", { symbol, interval, limit }, fetchImpl));
+  const lim = source?.kind === "spot" ? Math.min(limit, 1000) : limit;
+  const all = toCandles(await getJson("/klines", { symbol, interval, limit: lim }, fetchImpl));
   return { closed: all.slice(0, -1), live: all[all.length - 1] };
 }
 
 /** Kontrak perpetual USDT yang sedang aktif: Set nama simbol. */
 export async function fetchPerpetuals(fetchImpl) {
-  const info = await getJson("/fapi/v1/exchangeInfo", {}, fetchImpl);
+  const info = await getJson("/exchangeInfo", {}, fetchImpl);
   return new Set(info.symbols
     .filter((s) => s.status === "TRADING" && s.contractType === "PERPETUAL" && s.quoteAsset === "USDT")
     .map((s) => s.symbol));
 }
 
-/** N koin dengan volume 24 jam terbesar yang punya kontrak perpetual, tanpa stablecoin. */
+const STABLE = /^(USDC|FDUSD|TUSD|USDP|BUSD|DAI|EUR|EURI|AEUR|PYUSD|USD1|XUSD|BFUSD|RLUSD|USDE|U|PAXG|XAUT|WBTC)USDT$/;
+
+/** N koin dengan volume 24 jam terbesar (Futures: hanya yang punya kontrak perpetual), tanpa stablecoin. */
 export async function topSymbols(n = C.TOP_COINS, fetchImpl) {
-  const [tickers, perps] = await Promise.all([getJson("/fapi/v1/ticker/24hr", {}, fetchImpl), fetchPerpetuals(fetchImpl)]);
+  const tickers = await getJson("/ticker/24hr", {}, fetchImpl);
+  let ok;
+  if (source.kind === "futures") {
+    const perps = await fetchPerpetuals(fetchImpl);
+    ok = (t) => perps.has(t.symbol);
+  } else {
+    ok = (t) => !/(UP|DOWN|BULL|BEAR)USDT$/.test(t.symbol) && !STABLE.test(t.symbol);
+  }
   return tickers
-    .filter((t) => perps.has(t.symbol) && !C.EXCLUDE.includes(t.symbol) && +t.quoteVolume > 0)
+    .filter((t) => t.symbol.endsWith("USDT") && ok(t) && !C.EXCLUDE.includes(t.symbol) && +t.quoteVolume > 0)
     .sort((a, b) => +b.quoteVolume - +a.quoteVolume)
     .slice(0, n)
     .map((t) => ({ symbol: t.symbol, price: +t.lastPrice, change: +t.priceChangePercent, volume: +t.quoteVolume }));
 }
 
 export async function fetchTickers(fetchImpl) {
-  return getJson("/fapi/v1/ticker/price", {}, fetchImpl);
+  return getJson("/ticker/price", {}, fetchImpl);
 }
 
-export const tradeUrl = (symbol) => `https://www.binance.bh/en/futures/${symbol}`;
+// Nama kontrak Futures untuk koin yang harganya sangat kecil (dipakai saat data dari Spot).
+const FUT_PREFIX = { PEPE: "1000PEPE", SHIB: "1000SHIB", BONK: "1000BONK", FLOKI: "1000FLOKI", LUNC: "1000LUNC", XEC: "1000XEC", SATS: "1000SATS", RATS: "1000RATS", CAT: "1000CAT", CHEEMS: "1000CHEEMS", MOG: "1000000MOG" };
+export const futuresSymbol = (symbol) => {
+  if (/^\d/.test(symbol)) return symbol;
+  const b = symbol.replace(/USDT$/, "");
+  return (FUT_PREFIX[b] || b) + "USDT";
+};
+export const tradeUrl = (symbol) => `https://www.binance.bh/en/futures/${futuresSymbol(symbol)}`;
 
 /** Nama koin untuk logo/tampilan: 1000PEPEUSDT -> PEPE. */
 export const baseAsset = (symbol) => symbol.replace(/USDT$/, "").replace(/^1000+/, "");
