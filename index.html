@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="id" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sinyal Kripto: Baca pasar. Sebelum bergerak.</title>
+<meta name="description" content="Sinyal long dan short otomatis untuk 20 koin teratas Binance Futures, lengkap dengan stop loss, take profit, dan analisis teknikal.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235E5CE6'/%3E%3Cpolyline points='6 22 13 15 18 20 26 11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script>
+  // Tema dipasang sebelum halaman tampil supaya tidak berkedip.
+  (function () {
+    var mode = "auto";
+    try { mode = localStorage.getItem("theme") || "auto"; } catch (e) {}
+    var h = new Date().getHours();
+    var t = mode === "auto" ? (h >= 6 && h < 18 ? "light" : "dark") : mode;
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+<link rel="stylesheet" href="style.css">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+<div id="splash" role="status" aria-live="polite">
+  <div class="splash-candles" aria-hidden="true">
+    <i style="height:30px;animation-delay:.05s"></i><i class="r" style="height:22px;animation-delay:.15s"></i>
+    <i style="height:38px;animation-delay:.25s"></i><i style="height:48px;animation-delay:.35s"></i>
+    <i class="r" style="height:34px;animation-delay:.45s"></i><i style="height:56px;animation-delay:.55s"></i>
+    <i style="height:68px;animation-delay:.65s"></i>
+    <svg viewBox="0 0 120 80" preserveAspectRatio="none"><path d="M0 62 L20 54 L36 58 L52 42 L70 34 L86 38 L104 16 L122 6"></path></svg>
+  </div>
+  <div class="splash-title">Sinyal Kripto</div>
+  <div class="splash-sub">Baca pasar. Sebelum bergerak.</div>
+  <div class="splash-bar"><span id="splash-bar"></span></div>
+  <div class="splash-status" id="splash-status">Menghubungkan ke Binance…</div>
+  <button id="skip" type="button">Lewati</button>
+</div>
+
+<nav class="top" id="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 7"></polyline><polyline points="15 7 21 7 21 13"></polyline></svg></span>Sinyal Kripto</a>
+    <div class="nav-right">
+      <span class="clock"><span class="live-dot"></span><span id="clock">Live</span></span>
+      <div class="theme-switch" role="group" aria-label="Tema">
+        <button type="button" data-mode="auto" title="Otomatis (terang 06.00–18.00)" aria-label="Tema otomatis"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg></button>
+        <button type="button" data-mode="light" title="Terang" aria-label="Tema terang"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg></button>
+        <button type="button" data-mode="dark" title="Gelap" aria-label="Tema gelap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg></button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <canvas id="globe" aria-hidden="true"></canvas>
+  <div class="hero-copy">
+    <h1 class="in">Baca pasar.<br><span>Sebelum bergerak.</span></h1>
+    <p class="in d1">Sinyal long dan short otomatis untuk 20 koin teratas Binance Futures, lengkap dengan stop loss, take profit, dan jam masuknya.</p>
+    <div class="hero-cta in d2">
+      <a class="btn primary" href="#sinyal">Lihat sinyal</a>
+      <a class="btn ghost" href="#analisis">Analisis teknikal</a>
+    </div>
+    <div class="hero-stats in d3">
+      <span>BTC <b id="hs-btc">–</b></span>
+      <span>Posisi terbuka <b id="hs-pos">–</b></span>
+      <span>Sinyal 24 jam <b id="hs-sig">–</b></span>
+    </div>
+  </div>
+  <a class="scroll-cue" href="#pasar" aria-label="Gulir ke bawah"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></a>
+</header>
+
+<main class="wrap">
+  <section id="pasar">
+    <div class="kpis reveal">
+      <div class="kpi"><span class="ico" style="background:color-mix(in srgb,var(--accent) 14%,transparent)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"></path></svg></span><span class="val" id="k-sig">–</span><span class="muted" id="k-sig-l">Sinyal 24 jam terakhir</span></div>
+      <div class="kpi"><span class="ico" style="background:color-mix(in srgb,var(--violet) 14%,transparent)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--violet)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg></span><span class="val" id="k-pos">–</span><span class="muted">Posisi terbuka</span></div>
+      <div class="kpi"><span class="ico" style="background:var(--upbg)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--up)" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1"></circle></svg></span><span class="val" id="k-tp">–</span><span class="muted">Kena take profit, 7 hari</span></div>
+      <div class="kpi"><span class="ico" style="background:var(--downbg)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--down)" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></span><span class="val" id="k-sl">–</span><span class="muted">Kena stop loss, 7 hari</span></div>
+    </div>
+    <div style="height:48px"></div>
+    <h2 class="reveal">Pasar sekarang</h2>
+    <p class="section-sub reveal">20 koin dengan volume terbesar di Binance Futures. Klik untuk membuka grafiknya.</p>
+    <div class="coins" id="coins"></div>
+  </section>
+
+  <section id="grafik">
+    <div class="chart-head reveal">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px" id="chart-title"></div>
+        <div style="display:flex;align-items:baseline;gap:12px"><span class="big-price" id="chart-price">–</span><span id="chart-change"></span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+        <div class="seg" id="tf-seg" role="group" aria-label="Timeframe"></div>
+        <div class="seg" id="ind-seg" role="group" aria-label="Indikator"></div>
+      </div>
+    </div>
+    <div class="chart-box reveal">
+      <div class="pane-label"><div id="chart-main"></div></div>
+      <div class="pane-label" id="pane-rsi"><span>RSI 14</span><div id="chart-rsi"></div></div>
+      <div class="pane-label" id="pane-macd"><span>MACD 12 26 9</span><div id="chart-macd"></div></div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="timebar" id="timebar"></div>
+  </section>
+
+  <section id="analisis">
+    <h2 class="reveal">Analisis teknikal</h2>
+    <p class="section-sub reveal" id="analysis-sub">Gabungan 12 moving average dan 8 osilator, dengan metode seperti rating teknikal TradingView.</p>
+    <div class="analysis reveal" id="gauges"></div>
+    <details class="more reveal"><summary>Lihat detail tiap indikator</summary><div id="ind-detail" class="analysis" style="margin-top:8px"></div></details>
+  </section>
+
+  <section id="posisi">
+    <h2 class="reveal">Posisi terbuka</h2>
+    <p class="section-sub reveal">Posisi yang dibuka bot dan belum kena TP atau SL. Klik tombolnya untuk membuka kontraknya di Binance Futures.</p>
+    <div id="positions"></div>
+  </section>
+
+  <section id="sinyal">
+    <h2 class="reveal">Sinyal terbaru</h2>
+    <p class="section-sub reveal">Jam masuk dalam WIB. Sinyal muncul saat candle tutup, jadi masuklah sebelum batas berlakunya.</p>
+    <div class="filters reveal"><div class="seg" id="sig-tf"></div><div class="seg" id="sig-side"></div></div>
+    <div class="table-wrap reveal"><table class="sig"><thead><tr><th>Masuk (WIB)</th><th>Koin</th><th>Arah</th><th class="r">Harga</th><th class="r">Stop loss</th><th class="r">Take profit</th><th>Status</th><th>Perkiraan TP</th><th></th></tr></thead><tbody id="signals"></tbody></table></div>
+  </section>
+
+  <section id="backtest">
+    <h2 class="reveal">Hasil uji historis</h2>
+    <p class="section-sub reveal" id="bt-sub">Rata-rata semua koin, tanpa leverage, sudah termasuk biaya 0,05% per transaksi.</p>
+    <div class="bt reveal" id="bt"></div>
+  </section>
+
+  <footer>
+    <div class="disclaimer">Sinyal otomatis, bukan nasihat keuangan. Trading futures berisiko tinggi, dan leverage bisa membuat Anda kehilangan seluruh modal. Perkiraan jam take profit dihitung dari data historis dan bukan jaminan.</div>
+    Data harga dari API publik Binance Futures, diambil langsung oleh browser Anda. Strategi: persilangan EMA 20/50 dengan konfirmasi RSI 14 dan filter tren 4 jam; stop loss 1,5 ATR, take profit 3 ATR. Situs ini tidak terafiliasi dengan Binance atau TradingView. Logo koin dari TradingView.
+  </footer>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
