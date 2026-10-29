@@ -140,6 +140,11 @@ h2 { margin: 0 0 6px; font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.03em
 
 /* ---------- Analysis ---------- */
 .analysis { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.tf-dirs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.tf-dir { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.tf-dir:hover { border-color: var(--accent); }
+.tf-dir.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.tf-dir .tf-name { font-weight: 700; font-size: 15px; }
 .gauge-card { border: 1px solid var(--line); border-radius: 16px; padding: 18px; background: var(--card); text-align: center; }
 .gauge-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 .gauge-card .verdict { font-size: 22px; font-weight: 700; margin-top: 2px; }
