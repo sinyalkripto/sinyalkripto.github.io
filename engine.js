@@ -9,8 +9,10 @@ export const CONFIG = {
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
     "AEURUSDT", "USD1USDT", "XUSDUSDT", "BFUSDUSDT", "RLUSDUSDT", "USDEUSDT",
     "PAXGUSDT", "XAUTUSDT", "WBTCUSDT", "SPCXBUSDT", "SNDKBUSDT", "UUSDT"],
-  TIMEFRAMES: ["15m", "30m", "1h", "4h"],
+  TIMEFRAMES: ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "4h"],
   CANDLE_LIMIT: 1500,
+  // Timeframe kecil cukup 1000 candle (lebih ringan, dan Spot maksimal 1000).
+  FAST_LIMIT: 1000,
   EMA_FAST: 20,
   EMA_SLOW: 50,
   RSI_PERIOD: 14,
@@ -27,7 +29,7 @@ export const CONFIG = {
 };
 
 const C = CONFIG;
-export const INTERVAL_MS = { "1m": 6e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
+export const INTERVAL_MS = { "1s": 1e3, "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------
 
@@ -221,8 +223,8 @@ async function fetchWithTimeout(fetchImpl, url, ms) {
   try { return await fetchImpl(url, ctl ? { signal: ctl.signal } : undefined); } finally { if (timer) clearTimeout(timer); }
 }
 
-async function getJson(path, params = {}, fetchImpl = globalThis.fetch) {
-  const candidates = source ? [source] : SOURCES;
+async function getJson(path, params = {}, fetchImpl = globalThis.fetch, only = null) {
+  const candidates = only || (source ? [source] : SOURCES);
   let lastError;
   for (const src of candidates) {
     const url = `${src.base}${src.p}${path}?${new URLSearchParams(params)}`;
@@ -232,7 +234,7 @@ async function getJson(path, params = {}, fetchImpl = globalThis.fetch) {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
       if (!source || attempts.length < 40) attempts.push({ url, ok: true, ms: Date.now() - t0 });
-      source = src;
+      if (!only) source = src;
       return json;
     } catch (e) {
       lastError = e;
@@ -242,10 +244,30 @@ async function getJson(path, params = {}, fetchImpl = globalThis.fetch) {
   throw new Error(`Binance tidak bisa dihubungi (${lastError?.message || lastError})`);
 }
 
+/** Jumlah candle per timeframe. */
+export const candleLimit = (interval) => (INTERVAL_MS[interval] < INTERVAL_MS["15m"] ? C.FAST_LIMIT : C.CANDLE_LIMIT);
+
 /** Candle yang sudah close + candle yang sedang berjalan (terpisah). */
-export async function fetchKlines(symbol, interval, limit = C.CANDLE_LIMIT, fetchImpl) {
+export async function fetchKlines(symbol, interval, limit = candleLimit(interval), fetchImpl) {
+  // Binance Futures tidak punya candle 1 detik, jadi 1s selalu diambil dari Spot.
+  if (interval === "1s" && source?.kind !== "spot") return fetchSpot1s(symbol, Math.min(limit, 1000), fetchImpl);
   const lim = source?.kind === "spot" ? Math.min(limit, 1000) : limit;
   const all = toCandles(await getJson("/klines", { symbol, interval, limit: lim }, fetchImpl));
+  return { closed: all.slice(0, -1), live: all[all.length - 1] };
+}
+
+/** Candle 1 detik dari Spot. Kontrak 1000PEPE dll. diskalakan agar harganya sama dengan Futures. */
+async function fetchSpot1s(symbol, limit, fetchImpl) {
+  const zeros = symbol.match(/^1(0+)(?=\D)/)?.[1].length ?? 0;
+  const k = 10 ** zeros;
+  const spot = SOURCES.filter((s) => s.kind === "spot");
+  let raw;
+  try {
+    raw = await getJson("/klines", { symbol: symbol.slice(zeros ? zeros + 1 : 0), interval: "1s", limit }, fetchImpl, spot);
+  } catch (e) {
+    throw new Error(`Candle 1 detik untuk ${symbol} tidak tersedia: Binance hanya menyediakannya di pasar Spot, dan koin ini tidak ada di Spot`);
+  }
+  const all = toCandles(raw).map((c) => ({ ...c, open: c.open * k, high: c.high * k, low: c.low * k, close: c.close * k, volume: c.volume / k }));
   return { closed: all.slice(0, -1), live: all[all.length - 1] };
 }
 

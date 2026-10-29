@@ -1,15 +1,17 @@
 import {
-  CONFIG, INTERVAL_MS, analyze, attempts, baseAsset, dataSource, ema, fetchKlines, fetchTickers, rsi, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js?v=3";
+  CONFIG, INTERVAL_MS, analyze, attempts, baseAsset, dataSource, ema, candleLimit, fetchKlines, fetchTickers, rsi, sides, topSymbols, tradeUrl, usesFilter,
+} from "./engine.js?v=4";
 import { startGlobe } from "./globe.js?v=3";
 
 const $ = (s) => document.querySelector(s);
 const TFS = CONFIG.TIMEFRAMES;
-const TF_LABEL = { "15m": "15m", "30m": "30m", "1h": "1j", "4h": "4j" };
+// 1s hanya dimuat untuk koin yang sedang dibuka (diperbarui tiap 2 detik), bukan untuk semua koin.
+const SOLO_TF = "1s";
+const TF_LABEL = { "1s": "1dt", "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1j", "4h": "4j" };
 const S = {
   symbols: [], info: {}, data: {}, res: {}, prices: {}, prevPrices: {},
   sel: "BTCUSDT", tf: "1h", ind: { ema: true, bb: false, vol: true, rsi: true, macd: true },
-  sigTf: "all", sigSide: "all", showAllPos: false,
+  sigTf: "all", sigSide: "all", showAllPos: false, loadErr: {},
 };
 
 // ---------- Format ----------
@@ -29,6 +31,7 @@ function wib(ms) {
 const fmtTime = (ms) => { const w = wib(ms); return `${w.day} ${w.mon}, ${w.hh}:${w.mm}`; };
 const fmtClock = (ms) => { const w = wib(ms); return `${w.hh}:${w.mm}`; };
 function fmtDur(ms) {
+  if (ms < 6e4) return `${Math.round(ms / 1000)} detik`;
   const m = ms / 6e4;
   if (m < 90) return `${Math.round(m)} menit`;
   const h = m / 60;
@@ -126,7 +129,7 @@ function compute(sym, tf) {
 }
 
 async function load(sym, tf) {
-  const k = await fetchKlines(sym, tf, CONFIG.CANDLE_LIMIT);
+  const k = await fetchKlines(sym, tf, candleLimit(tf));
   S.data[sym] ??= {};
   S.data[sym][tf] = k;
   if (tf === CONFIG.TREND_FILTER) TFS.forEach((t) => compute(sym, t));
@@ -165,7 +168,7 @@ async function init() {
     maybeHideSplash(true);
     renderAll();
     const rest = [];
-    for (const tf of ["30m", "15m"]) for (const { symbol } of S.symbols) rest.push(async () => { await load(symbol, tf); scheduleRender(); });
+    for (const tf of ["30m", "15m", "5m", "3m", "1m"]) for (const { symbol } of S.symbols) rest.push(async () => { await load(symbol, tf); scheduleRender(); });
     await pool(rest, 4);
     renderAll();
     startLive();
@@ -183,6 +186,13 @@ async function init() {
 const lastClose = {};
 function startLive() {
   TFS.forEach((tf) => { lastClose[tf] = Math.floor(Date.now() / INTERVAL_MS[tf]); });
+  // Candle 1 detik: hanya koin yang sedang dibuka di grafik.
+  let soloBusy = false;
+  setInterval(async () => {
+    if (S.tf !== SOLO_TF || soloBusy || document.hidden) return;
+    soloBusy = true;
+    try { await load(S.sel, SOLO_TF); renderAll(); } catch (e) { console.warn(e); } finally { soloBusy = false; }
+  }, 2000);
   setInterval(async () => {
     try {
       const t = await fetchTickers();
@@ -199,7 +209,7 @@ function startLive() {
   }, 60e3);
   // Ambil ulang candle saat sebuah timeframe tutup (sinyal baru hanya muncul di saat itu).
   setInterval(async () => {
-    const changed = TFS.filter((tf) => Math.floor((Date.now() - 4000) / INTERVAL_MS[tf]) !== lastClose[tf]);
+    const changed = TFS.filter((tf) => tf !== SOLO_TF && Math.floor((Date.now() - 4000) / INTERVAL_MS[tf]) !== lastClose[tf]);
     if (!changed.length) return;
     changed.forEach((tf) => { lastClose[tf] = Math.floor((Date.now() - 4000) / INTERVAL_MS[tf]); });
     const order = changed.includes("4h") ? ["4h", ...changed.filter((t) => t !== "4h")] : changed;
@@ -254,11 +264,12 @@ const markSelected = () => document.querySelectorAll(".coin").forEach((b) => b.c
 async function selectCoin(sym, tf = S.tf) {
   S.sel = sym; S.tf = tf;
   markSelected();
-  if (!S.res[sym]?.[tf]) {
+  delete S.loadErr[sym + tf];
+  if (!S.res[sym]?.[tf] || tf === SOLO_TF) {
     try {
       if (!S.data[sym]?.["4h"]) await load(sym, "4h");
-      if (!S.data[sym]?.[tf]) await load(sym, tf);
-    } catch (e) { console.warn(e); }
+      if (!S.data[sym]?.[tf] || tf === SOLO_TF) await load(sym, tf);
+    } catch (e) { console.warn(e); S.loadErr[sym + tf] = e.message; }
   }
   renderChart(true); renderAnalysis();
 }
@@ -418,7 +429,7 @@ function renderBacktest() {
     html.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]} · ${side === "long" ? "Long" : "Short"}</span><b class="${avg >= 0 ? "up" : "down"}">${fmtPct(avg, 1)}</b><span class="muted" style="font-size:13px">${rs.filter((x) => x.return > 0).length}/${rs.length} koin untung · win ${nf(0).format(win)}%${tm.samples ? ` · TP ± ${fmtDur(tm.median)}` : ""}</span></div>`);
   }
   $("#bt").innerHTML = html.join("") || `<p class="empty">Memuat…</p>`;
-  $("#bt-sub").textContent = "Rata-rata semua koin dari 1500 candle terakhir per timeframe (15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan), tanpa leverage, sudah termasuk biaya 0,05% per transaksi.";
+  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1m ≈ 17 jam, 5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik hanya koin yang pernah dibuka, ≈ 17 menit), tanpa leverage, sudah termasuk biaya 0,05% per transaksi.";
 }
 
 // ---------- Indikator tambahan ----------
@@ -595,8 +606,14 @@ function renderChart(fit = false) {
   initCharts();
   const r = S.res[S.sel]?.[S.tf];
   const live = S.data[S.sel]?.[S.tf]?.live;
-  $("#chart-title").innerHTML = `${logo(S.sel)}<b style="font-size:17px">${esc(baseAsset(S.sel))}</b><span class="muted">${esc(S.sel)} · Perpetual · ${TF_LABEL[S.tf]}</span><a class="trade" style="min-height:30px;font-size:12px;padding:0 12px" href="${tradeUrl(S.sel)}" target="_blank" rel="noopener">Pasang posisi ↗</a>`;
+  $("#chart-title").innerHTML = `${logo(S.sel)}<b style="font-size:17px">${esc(baseAsset(S.sel))}</b><span class="muted">${esc(S.sel)} · ${S.tf === SOLO_TF ? "data Spot" : "Perpetual"} · ${TF_LABEL[S.tf]}</span><a class="trade" style="min-height:30px;font-size:12px;padding:0 12px" href="${tradeUrl(S.sel)}" target="_blank" rel="noopener">Pasang posisi ↗</a>`;
+  const err = S.loadErr[S.sel + S.tf];
+  if (err && !r) {
+    $("#chart-title").innerHTML += `<p class="disclaimer" style="margin:0;flex-basis:100%">${esc(err)}. Pilih timeframe lain.</p>`;
+    if (charts) [charts.candle, charts.vol, charts.emaF, charts.emaS].forEach((x) => x.setData([]));
+  }
   if (!r || !charts) return;
+  charts.main.timeScale().applyOptions({ secondsVisible: S.tf === SOLO_TF });
   const rows = r.rows, close = rows.map((x) => x.close), c = chartColors();
   const prec = decimals(close[close.length - 1]);
   charts.candle.applyOptions({ priceFormat: { type: "price", precision: prec, minMove: 10 ** -prec } });
@@ -664,14 +681,15 @@ function updateChartLive() {
     if (info) $("#chart-change").innerHTML = `<span class="pill ${info.change >= 0 ? "up" : "down"}">${info.change >= 0 ? "▲" : "▼"} ${nf(2).format(Math.abs(info.change))}% 24j</span>`;
   }
   const live = S.data[S.sel]?.[S.tf]?.live;
-  if (!charts || !live || !p) return;
+  // Candle 1 detik sudah diganti tiap 2 detik; jangan tempel harga Futures ke candle Spot yang sudah lewat.
+  if (!charts || !live || !p || S.tf === SOLO_TF) return;
   live.high = Math.max(live.high, p); live.low = Math.min(live.low, p); live.close = p;
   charts.candle.update({ time: ts(live.time), open: live.open, high: live.high, low: live.low, close: p });
 }
 
 function renderTimebar() {
   const now = Date.now();
-  $("#timebar").innerHTML = TFS.map((tf) => {
+  $("#timebar").innerHTML = TFS.filter((tf) => tf !== SOLO_TF).map((tf) => {
     const next = (Math.floor(now / INTERVAL_MS[tf]) + 1) * INTERVAL_MS[tf];
     return `<span>Candle ${TF_LABEL[tf]} tutup <b>${fmtClock(next)} WIB</b> · ${fmtCountdown(next - now)}</span>`;
   }).join("") + `<span>Sinyal baru hanya muncul saat candle tutup</span>`;
