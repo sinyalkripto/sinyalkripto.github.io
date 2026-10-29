@@ -1,11 +1,12 @@
 import {
-  CONFIG, INTERVAL_MS, analyze, attempts, baseAsset, dataSource, ema, candleLimit, fetchKlines, fetchTickers, rsi, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js?v=4";
+  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
+} from "./engine.js?v=5";
 import { startGlobe } from "./globe.js?v=3";
+import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
 const $ = (s) => document.querySelector(s);
 const TFS = CONFIG.TIMEFRAMES;
-// 1s hanya dimuat untuk koin yang sedang dibuka (diperbarui tiap 2 detik), bukan untuk semua koin.
+// 1s dirakit dari transaksi Futures, hanya untuk koin yang sedang dibuka (dihitung ulang tiap 2 detik).
 const SOLO_TF = "1s";
 const TF_LABEL = { "1s": "1dt", "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1j", "4h": "4j" };
 const S = {
@@ -129,6 +130,7 @@ function compute(sym, tf) {
 }
 
 async function load(sym, tf) {
+  if (tf === SOLO_TF) { await ensureSolo(sym); return soloTick(); }
   const k = await fetchKlines(sym, tf, candleLimit(tf));
   S.data[sym] ??= {};
   S.data[sym][tf] = k;
@@ -144,7 +146,7 @@ function scheduleRender() {
 }
 function renderAll() {
   renderKpis(); renderPositions(); renderSignals(); renderBacktest();
-  if (S.res[S.sel]?.[S.tf]) { renderChart(); renderAnalysis(); }
+  if (S.res[S.sel]?.[S.tf]) { renderChart(); renderAnalysis(); } else renderTfDirections();
 }
 
 async function init() {
@@ -154,9 +156,6 @@ async function init() {
     S.symbols.forEach((s) => { S.info[s.symbol] = s; S.prices[s.symbol] = s.price; });
     if (!S.info[S.sel]) S.sel = S.symbols[0].symbol;
     renderCoins();
-    if (dataSource() === "spot") {
-      $("#pasar .section-sub").textContent = "Binance Futures tidak bisa diakses dari jaringan Anda, jadi harga diambil dari Binance Spot (selisihnya biasanya sangat kecil). Klik koin untuk membuka grafiknya.";
-    }
     splashProgress(30, `Membaca harga ${S.symbols.length} koin…`);
     let done = 0;
     const first = [];
@@ -175,11 +174,50 @@ async function init() {
   } catch (e) {
     console.error(e);
     hideSplash();
-    const msg = `Data Binance tidak bisa diambil (${esc(e.message)}). Kemungkinan jaringan atau ekstensi browser Anda (misalnya pemblokir iklan) memblokir Binance. Coba nonaktifkan ekstensi itu untuk situs ini, pakai jaringan lain, lalu muat ulang halaman.`;
+    const msg = `Data Binance Futures tidak bisa diambil (${esc(e.message)}). Kemungkinan jaringan atau ekstensi browser Anda (misalnya pemblokir iklan) memblokir Binance. Coba nonaktifkan ekstensi itu untuk situs ini, pakai jaringan lain, lalu muat ulang halaman.`;
     $("#coins").innerHTML = `<p class="disclaimer">${msg}</p>`;
     $("#chart-title").innerHTML = `<p class="disclaimer" style="margin:0">${msg}</p>`;
     $("#hs-btc").textContent = "tidak tersedia";
   }
+}
+
+// ---------- Candle 1 detik (transaksi Futures: riwayat REST + WebSocket aggTrade) ----------
+const solo = { sym: null, map: null, ws: null, starting: null };
+function stopSolo() {
+  if (solo.ws) { solo.ws.onclose = solo.ws.onmessage = null; solo.ws.close(); }
+  Object.assign(solo, { sym: null, map: null, ws: null, starting: null });
+}
+function ensureSolo(sym) {
+  if (solo.sym === sym && (solo.ws || solo.starting)) return solo.starting;
+  // WebSocket putus/diblokir: ambil ulang riwayat paling sering tiap 15 detik (batas API).
+  if (solo.sym === sym && solo.map && Date.now() - solo.at < 15e3) return null;
+  stopSolo();
+  solo.sym = sym; solo.at = Date.now();
+  const buffer = [];
+  const ws = typeof WebSocket !== "undefined" ? new WebSocket(`wss://fstream.binance.com/ws/${sym.toLowerCase()}@aggTrade`) : null;
+  if (ws) {
+    ws.onmessage = (e) => { const t = JSON.parse(e.data); if (solo.map) { if (t.a > solo.lastId) addTrade(solo.map, t); } else buffer.push(t); };
+    ws.onclose = () => { if (solo.ws === ws) solo.ws = null; }; // tersambung ulang di tick berikutnya
+    solo.ws = ws;
+  }
+  solo.starting = fetchTradeMap(sym).then((map) => {
+    if (solo.sym !== sym) return;
+    // Transaksi yang sudah ada di riwayat REST jangan dihitung dua kali.
+    solo.lastId = [...map.values()].reduce((m, k) => Math.max(m, k.maxA), -1);
+    for (const t of buffer) if (t.a > solo.lastId) addTrade(map, t);
+    solo.map = map;
+    solo.starting = null;
+  }, (e) => { if (solo.sym === sym) stopSolo(); throw e; });
+  return solo.starting;
+}
+function soloTick() {
+  const sym = solo.sym;
+  if (!sym || !solo.map) return;
+  const all = candlesFromMap(solo.map, 1000, CONFIG.FAST_LIMIT, Date.now());
+  if (all.length < 2) return;
+  S.data[sym] ??= {};
+  S.data[sym][SOLO_TF] = { closed: all.slice(0, -1), live: all[all.length - 1] };
+  compute(sym, SOLO_TF);
 }
 
 // ---------- Live ----------
@@ -187,11 +225,9 @@ const lastClose = {};
 function startLive() {
   TFS.forEach((tf) => { lastClose[tf] = Math.floor(Date.now() / INTERVAL_MS[tf]); });
   // Candle 1 detik: hanya koin yang sedang dibuka di grafik.
-  let soloBusy = false;
   setInterval(async () => {
-    if (S.tf !== SOLO_TF || soloBusy || document.hidden) return;
-    soloBusy = true;
-    try { await load(S.sel, SOLO_TF); renderAll(); } catch (e) { console.warn(e); } finally { soloBusy = false; }
+    if (S.tf !== SOLO_TF || document.hidden) return;
+    try { await load(S.sel, SOLO_TF); renderAll(); } catch (e) { console.warn(e); }
   }, 2000);
   setInterval(async () => {
     try {
@@ -263,6 +299,7 @@ const markSelected = () => document.querySelectorAll(".coin").forEach((b) => b.c
 
 async function selectCoin(sym, tf = S.tf) {
   S.sel = sym; S.tf = tf;
+  if (tf !== SOLO_TF) stopSolo();
   markSelected();
   delete S.loadErr[sym + tf];
   if (!S.res[sym]?.[tf] || tf === SOLO_TF) {
@@ -429,73 +466,18 @@ function renderBacktest() {
     html.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]} · ${side === "long" ? "Long" : "Short"}</span><b class="${avg >= 0 ? "up" : "down"}">${fmtPct(avg, 1)}</b><span class="muted" style="font-size:13px">${rs.filter((x) => x.return > 0).length}/${rs.length} koin untung · win ${nf(0).format(win)}%${tm.samples ? ` · TP ± ${fmtDur(tm.median)}` : ""}</span></div>`);
   }
   $("#bt").innerHTML = html.join("") || `<p class="empty">Memuat…</p>`;
-  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1m ≈ 17 jam, 5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik hanya koin yang pernah dibuka, ≈ 17 menit), tanpa leverage, sudah termasuk biaya 0,05% per transaksi.";
+  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1m ≈ 17 jam, 5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi.";
 }
 
-// ---------- Indikator tambahan ----------
-function sma(v, n) {
-  const out = new Array(v.length).fill(NaN);
-  let s = 0;
-  for (let i = 0; i < v.length; i++) { s += v[i]; if (i >= n) s -= v[i - n]; if (i >= n - 1) out[i] = s / n; }
-  return out;
-}
-function stdev(v, n) {
-  const m = sma(v, n);
-  return v.map((_, i) => { if (i < n - 1) return NaN; let s = 0; for (let j = i - n + 1; j <= i; j++) s += (v[j] - m[i]) ** 2; return Math.sqrt(s / n); });
-}
-function macd(close) {
-  const f = ema(close, 12), s = ema(close, 26);
-  const line = f.map((x, i) => x - s[i]);
-  const sig = ema(line, 9);
-  return { line, sig, hist: line.map((x, i) => x - sig[i]) };
-}
-const wilder = (v, n) => { const a = 1 / n; let p = NaN; return v.map((x) => (p = Number.isNaN(p) ? x : a * x + (1 - a) * p)); };
+// ---------- Analisis teknikal: arah LONG/SHORT per timeframe ----------
+const AHEAD = 5; // akurasi: arah dibandingkan dengan harga 5 candle sesudahnya
+const voteWord = (v) => (v > 0 ? "Long" : v < 0 ? "Short" : "Netral");
+const voteColor = (v) => (v > 0 ? "var(--up)" : v < 0 ? "var(--down)" : "var(--muted)");
+/** Arah selalu LONG/SHORT; tie diputus di rating(). Kata "kuat" saat mayoritas jelas. */
+const dirWord = (s, dir) => (dir > 0 ? "LONG" : "SHORT") + (Math.abs(s) >= 0.5 ? " kuat" : "");
+const subWord = (s) => (s >= 0.5 ? "Long kuat" : s >= 0.1 ? "Long" : s > -0.1 ? "Netral" : s > -0.5 ? "Short" : "Short kuat");
 
-function rating(rows) {
-  const c = rows.map((r) => r.close), h = rows.map((r) => r.high), l = rows.map((r) => r.low);
-  const n = c.length - 1, price = c[n];
-  const act = (b, s) => (b ? "Beli" : s ? "Jual" : "Netral");
-  const mas = [];
-  for (const p of [10, 20, 30, 50, 100, 200]) {
-    for (const [name, arr] of [["EMA", ema(c, p)], ["SMA", sma(c, p)]]) {
-      const v = arr[n];
-      mas.push({ name: `${name} ${p}`, value: v, action: Number.isNaN(v) ? "Netral" : act(v < price, v > price) });
-    }
-  }
-  const osc = [];
-  const r = rsi(c, 14);
-  osc.push({ name: "RSI 14", value: r[n], action: act(r[n] < 30 && r[n] > r[n - 1], r[n] > 70 && r[n] < r[n - 1]) });
-  const raw = c.map((x, i) => { if (i < 13) return NaN; const hh = Math.max(...h.slice(i - 13, i + 1)), ll = Math.min(...l.slice(i - 13, i + 1)); return hh === ll ? 50 : 100 * (x - ll) / (hh - ll); });
-  const k = sma(raw.map((x) => (Number.isNaN(x) ? 0 : x)), 3), d = sma(k, 3);
-  osc.push({ name: "Stochastic %K 14 3 3", value: k[n], action: act(k[n] < 20 && d[n] < 20 && k[n] > d[n], k[n] > 80 && d[n] > 80 && k[n] < d[n]) });
-  const tp = c.map((x, i) => (x + h[i] + l[i]) / 3), tpm = sma(tp, 20);
-  const cci = tp.map((x, i) => { if (i < 19) return NaN; let md = 0; for (let j = i - 19; j <= i; j++) md += Math.abs(tp[j] - tpm[i]); md /= 20; return (x - tpm[i]) / (0.015 * md); });
-  osc.push({ name: "CCI 20", value: cci[n], action: act(cci[n] < -100 && cci[n] > cci[n - 1], cci[n] > 100 && cci[n] < cci[n - 1]) });
-  const pdm = [0], mdm = [0], tr = [h[0] - l[0]];
-  for (let i = 1; i <= n; i++) {
-    const up = h[i] - h[i - 1], dn = l[i - 1] - l[i];
-    pdm.push(up > dn && up > 0 ? up : 0); mdm.push(dn > up && dn > 0 ? dn : 0);
-    tr.push(Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1])));
-  }
-  const atr14 = wilder(tr, 14), pdi = wilder(pdm, 14).map((x, i) => 100 * x / atr14[i]), mdi = wilder(mdm, 14).map((x, i) => 100 * x / atr14[i]);
-  const adx = wilder(pdi.map((x, i) => (x + mdi[i] ? 100 * Math.abs(x - mdi[i]) / (x + mdi[i]) : 0)), 14);
-  osc.push({ name: "ADX 14", value: adx[n], action: act(adx[n] > 20 && adx[n] > adx[n - 1] && pdi[n] > mdi[n], adx[n] > 20 && adx[n] > adx[n - 1] && mdi[n] > pdi[n]) });
-  const hl2 = h.map((x, i) => (x + l[i]) / 2), s34 = sma(hl2, 34), ao = sma(hl2, 5).map((x, i) => x - s34[i]);
-  osc.push({ name: "Awesome Oscillator", value: ao[n], action: act(ao[n] > 0 && ao[n] > ao[n - 1], ao[n] < 0 && ao[n] < ao[n - 1]) });
-  const mom = c.map((x, i) => (i >= 10 ? x - c[i - 10] : NaN));
-  osc.push({ name: "Momentum 10", value: mom[n], action: act(mom[n] > mom[n - 1], mom[n] < mom[n - 1]) });
-  const m = macd(c);
-  osc.push({ name: "MACD 12 26", value: m.line[n], action: act(m.line[n] > m.sig[n], m.line[n] < m.sig[n]) });
-  const wr = c.map((x, i) => { if (i < 13) return NaN; const hh = Math.max(...h.slice(i - 13, i + 1)), ll = Math.min(...l.slice(i - 13, i + 1)); return hh === ll ? -50 : -100 * (hh - x) / (hh - ll); });
-  osc.push({ name: "Williams %R 14", value: wr[n], action: act(wr[n] < -80 && wr[n] > wr[n - 1], wr[n] > -20 && wr[n] < wr[n - 1]) });
-  const score = (list) => (list.filter((x) => x.action === "Beli").length - list.filter((x) => x.action === "Jual").length) / list.length;
-  const sMa = score(mas), sOsc = score(osc);
-  return { mas, osc, sMa, sOsc, sAll: (sMa + sOsc) / 2 };
-}
-const verdict = (s) => (s >= 0.5 ? "Beli kuat" : s >= 0.1 ? "Beli" : s > -0.1 ? "Netral" : s > -0.5 ? "Jual" : "Jual kuat");
-const verdictColor = (s) => (s >= 0.1 ? "var(--up)" : s <= -0.1 ? "var(--down)" : "var(--muted)");
-
-function gauge(title, s, list) {
+function gauge(title, s, list, label) {
   const ang = Math.PI * (1 - (s + 1) / 2);
   const x = 100 + 72 * Math.cos(ang), y = 100 - 72 * Math.sin(ang);
   const seg = (a0, a1, col) => {
@@ -503,25 +485,64 @@ function gauge(title, s, list) {
     const [x0, y0] = p(a0), [x1, y1] = p(a1);
     return `<path d="M${x0.toFixed(1)} ${y0.toFixed(1)} A84 84 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}" stroke="${col}" stroke-width="10" fill="none" stroke-linecap="butt"></path>`;
   };
-  const cnt = (a) => list.filter((x) => x.action === a).length;
+  const cnt = (v) => list.filter((x) => x.vote === v).length;
+  const color = label.startsWith("LONG") || label.startsWith("Long") ? "var(--up)" : label.startsWith("SHORT") || label.startsWith("Short") ? "var(--down)" : "var(--muted)";
   return `<div class="gauge-card"><h3>${title}</h3>
-    <svg viewBox="0 0 200 116" width="100%" style="max-width:240px" role="img" aria-label="${title}: ${verdict(s)}">
+    <svg viewBox="0 0 200 116" width="100%" style="max-width:240px" role="img" aria-label="${title}: ${label}">
       ${seg(0.005, 0.195, "var(--down)")}${seg(0.205, 0.395, "color-mix(in srgb,var(--down) 45%,transparent)")}${seg(0.405, 0.595, "var(--line)")}${seg(0.605, 0.795, "color-mix(in srgb,var(--up) 45%,transparent)")}${seg(0.805, 0.995, "var(--up)")}
       <line x1="100" y1="100" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--text)" stroke-width="3" stroke-linecap="round" style="transition:all .6s"></line>
       <circle cx="100" cy="100" r="6" fill="var(--text)"></circle>
-      <text x="14" y="114" font-size="10" fill="var(--muted)">Jual kuat</text><text x="186" y="114" font-size="10" fill="var(--muted)" text-anchor="end">Beli kuat</text>
+      <text x="14" y="114" font-size="10" fill="var(--muted)">Short kuat</text><text x="186" y="114" font-size="10" fill="var(--muted)" text-anchor="end">Long kuat</text>
     </svg>
-    <div class="verdict" style="color:${verdictColor(s)}">${verdict(s)}</div>
-    <div class="counts"><span>Jual <b class="down">${cnt("Jual")}</b></span><span>Netral <b>${cnt("Netral")}</b></span><span>Beli <b class="up">${cnt("Beli")}</b></span></div></div>`;
+    <div class="verdict" style="color:${color}">${label}</div>
+    <div class="counts"><span>Short <b class="down">${cnt(-1)}</b></span><span>Netral <b>${cnt(0)}</b></span><span>Long <b class="up">${cnt(1)}</b></span></div></div>`;
+}
+
+/** Rating + akurasi historis per (koin, timeframe), dihitung ulang hanya saat candle berubah. */
+const dirCache = new WeakMap();
+function tfDirection(sym, tf) {
+  const r = S.res[sym]?.[tf];
+  if (!r || r.rows.length < 210) return null;
+  let d = dirCache.get(r.rows);
+  if (!d) dirCache.set(r.rows, (d = { rt: rating(r.rows), acc: directionAccuracy(r.rows, AHEAD) }));
+  return d;
+}
+
+function renderTfDirections() {
+  const cards = TFS.map((tf) => {
+    const d = tfDirection(S.sel, tf);
+    const cur = tf === S.tf ? " sel" : "";
+    if (!d) {
+      const why = tf === SOLO_TF && S.tf !== SOLO_TF ? "Klik untuk memuat" : tf === SOLO_TF ? "Mengumpulkan transaksi…" : "Memuat…";
+      return `<button type="button" class="tf-dir${cur}" data-tf="${tf}"><span class="tf-name">${TF_LABEL[tf]}</span><span class="muted" style="font-size:13px">${why}</span></button>`;
+    }
+    const { rt, acc } = d, all = [...rt.mas, ...rt.osc];
+    const nL = all.filter((x) => x.vote > 0).length, nS = all.filter((x) => x.vote < 0).length;
+    const side = rt.dir > 0 ? "LONG" : "SHORT";
+    return `<button type="button" class="tf-dir${cur}" data-tf="${tf}">
+      <span class="tf-name">${TF_LABEL[tf]}</span>
+      <span class="side ${side}" style="font-size:14px">${dirWord(rt.sAll, rt.dir)}</span>
+      <span class="muted" style="font-size:12px">${nL} long · ${nS} short · ${all.length - nL - nS} netral</span>
+      <span class="muted" style="font-size:12px">${Number.isNaN(acc.acc) ? "Akurasi –" : `Akurasi ${nf(0).format(acc.acc)}% <span title="Dari ${acc.total} candle terakhir: arah rating dibanding harga ${AHEAD} candle sesudahnya">(${acc.total})</span>`}</span>
+    </button>`;
+  });
+  $("#tf-dirs").innerHTML = cards.join("");
+  $("#tf-dirs").querySelectorAll(".tf-dir").forEach((b) => b.addEventListener("click", () => selectCoin(S.sel, b.dataset.tf)));
+  const ds = TFS.map((tf) => tfDirection(S.sel, tf)).filter(Boolean);
+  const long = ds.filter((d) => d.rt.dir > 0).length;
+  $("#tf-sum").innerHTML = ds.length
+    ? `${esc(baseAsset(S.sel))}: <b class="${long * 2 >= ds.length ? "up" : "down"}">${long} dari ${ds.length} timeframe LONG</b>, ${ds.length - long} SHORT. Timeframe yang searah dengan timeframe besar biasanya lebih bisa dipercaya.`
+    : "";
 }
 
 function renderAnalysis() {
-  const r = S.res[S.sel]?.[S.tf];
-  if (!r || r.rows.length < 210) return;
-  const rt = rating(r.rows);
-  $("#analysis-sub").textContent = `${baseAsset(S.sel)} · ${TF_LABEL[S.tf]} · candle tutup ${fmtTime(r.last.time + INTERVAL_MS[S.tf])} WIB. Gabungan 12 moving average dan 8 osilator, metode seperti rating teknikal TradingView. Alat bantu baca grafik, bukan jaminan.`;
-  $("#gauges").innerHTML = gauge("Osilator", rt.sOsc, rt.osc) + gauge("Ringkasan", rt.sAll, [...rt.osc, ...rt.mas]) + gauge("Moving average", rt.sMa, rt.mas);
-  const tbl = (list) => `<table class="ind-table">${list.map((x) => `<tr><td>${x.name}</td><td>${Number.isNaN(x.value) ? "–" : nf(Math.abs(x.value) >= 100 ? 2 : 4).format(x.value)}</td><td style="color:${x.action === "Beli" ? "var(--up)" : x.action === "Jual" ? "var(--down)" : "var(--muted)"}">${x.action}</td></tr>`).join("")}</table>`;
+  renderTfDirections();
+  const d = tfDirection(S.sel, S.tf);
+  if (!d) return;
+  const { rt, acc } = d, r = S.res[S.sel][S.tf];
+  $("#analysis-sub").textContent = `${baseAsset(S.sel)} · ${TF_LABEL[S.tf]} · candle tutup ${fmtTime(r.last.time + INTERVAL_MS[S.tf])} WIB. ${rt.total} indikator: ${rt.mas.length} indikator tren dan ${rt.osc.length} osilator. Akurasi = seberapa sering arah rating di ${acc.total} candle terakhir sesuai dengan harga ${AHEAD} candle sesudahnya. Alat bantu baca grafik, bukan jaminan.`;
+  $("#gauges").innerHTML = gauge("Osilator", rt.sOsc, rt.osc, subWord(rt.sOsc)) + gauge(`Arah ${TF_LABEL[S.tf]}`, rt.sAll, [...rt.osc, ...rt.mas], dirWord(rt.sAll, rt.dir)) + gauge("Tren (moving average dll.)", rt.sMa, rt.mas, subWord(rt.sMa));
+  const tbl = (list) => `<table class="ind-table">${list.map((x) => `<tr><td>${x.name}</td><td>${x.value == null || Number.isNaN(x.value) ? "–" : nf(Math.abs(x.value) >= 100 ? 2 : 4).format(x.value)}</td><td style="color:${voteColor(x.vote)}">${voteWord(x.vote)}</td></tr>`).join("")}</table>`;
   $("#ind-detail").innerHTML = `<div>${tbl(rt.osc)}</div><div>${tbl(rt.mas)}</div>`;
 }
 
@@ -606,7 +627,7 @@ function renderChart(fit = false) {
   initCharts();
   const r = S.res[S.sel]?.[S.tf];
   const live = S.data[S.sel]?.[S.tf]?.live;
-  $("#chart-title").innerHTML = `${logo(S.sel)}<b style="font-size:17px">${esc(baseAsset(S.sel))}</b><span class="muted">${esc(S.sel)} · ${S.tf === SOLO_TF ? "data Spot" : "Perpetual"} · ${TF_LABEL[S.tf]}</span><a class="trade" style="min-height:30px;font-size:12px;padding:0 12px" href="${tradeUrl(S.sel)}" target="_blank" rel="noopener">Pasang posisi ↗</a>`;
+  $("#chart-title").innerHTML = `${logo(S.sel)}<b style="font-size:17px">${esc(baseAsset(S.sel))}</b><span class="muted">${esc(S.sel)} · Perpetual · ${TF_LABEL[S.tf]}</span><a class="trade" style="min-height:30px;font-size:12px;padding:0 12px" href="${tradeUrl(S.sel)}" target="_blank" rel="noopener">Pasang posisi ↗</a>`;
   const err = S.loadErr[S.sel + S.tf];
   if (err && !r) {
     $("#chart-title").innerHTML += `<p class="disclaimer" style="margin:0;flex-basis:100%">${esc(err)}. Pilih timeframe lain.</p>`;
@@ -618,7 +639,7 @@ function renderChart(fit = false) {
   const prec = decimals(close[close.length - 1]);
   charts.candle.applyOptions({ priceFormat: { type: "price", precision: prec, minMove: 10 ** -prec } });
   const bars = rows.map((x) => ({ time: ts(x.time), open: x.open, high: x.high, low: x.low, close: x.close }));
-  if (live) bars.push({ time: ts(live.time), open: live.open, high: live.high, low: live.low, close: S.prices[S.sel] ?? live.close });
+  if (live) bars.push({ time: ts(live.time), open: live.open, high: live.high, low: live.low, close: (S.tf !== SOLO_TF && S.prices[S.sel]) || live.close });
   charts.candle.setData(bars);
   charts.vol.setData(S.ind.vol ? rows.map((x) => ({ time: ts(x.time), value: x.volume, color: x.close >= x.open ? c.up + "55" : c.down + "55" })) : []);
   charts.emaF.setData(S.ind.ema ? pts(rows, rows.map((x) => x.emaFast)) : []);
@@ -681,7 +702,7 @@ function updateChartLive() {
     if (info) $("#chart-change").innerHTML = `<span class="pill ${info.change >= 0 ? "up" : "down"}">${info.change >= 0 ? "▲" : "▼"} ${nf(2).format(Math.abs(info.change))}% 24j</span>`;
   }
   const live = S.data[S.sel]?.[S.tf]?.live;
-  // Candle 1 detik sudah diganti tiap 2 detik; jangan tempel harga Futures ke candle Spot yang sudah lewat.
+  // Candle 1 detik dihitung ulang tiap 2 detik dari transaksi; jangan tempel harga ke candle yang sudah lewat.
   if (!charts || !live || !p || S.tf === SOLO_TF) return;
   live.high = Math.max(live.high, p); live.low = Math.min(live.low, p); live.close = p;
   charts.candle.update({ time: ts(live.time), open: live.open, high: live.high, low: live.low, close: p });
@@ -701,7 +722,7 @@ if (/[?&]debug/.test(location.search)) {
   box.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:200;max-width:min(92vw,720px);max-height:45vh;overflow:auto;margin:0;padding:12px;border-radius:12px;background:rgba(0,0,0,.85);color:#fff;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap";
   document.body.appendChild(box);
   setInterval(() => {
-    box.textContent = `Sumber: ${dataSource() || "belum ada"} · koin: ${S.symbols.length} · dianalisis: ${Object.keys(S.res).length}\n` + attempts.slice(-14).map((a) => `${a.ok ? "OK " : "GAGAL"} ${a.ms}ms ${a.url.split("?")[0]}${a.error ? " → " + a.error : ""}`).join("\n");
+    box.textContent = `Sumber: Binance Futures · koin: ${S.symbols.length} · dianalisis: ${Object.keys(S.res).length}\n` + attempts.slice(-14).map((a) => `${a.ok ? "OK " : "GAGAL"} ${a.ms}ms ${a.url.split("?")[0]}${a.error ? " → " + a.error : ""}`).join("\n");
   }, 1000);
 }
 

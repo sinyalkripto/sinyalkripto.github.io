@@ -1,17 +1,17 @@
 // Mesin sinyal versi JavaScript: port 1:1 dari signals.py dan backtest.py.
 // Jalan di browser (GitHub Pages) dan di Node (untuk tes). Semua data diambil langsung
-// dari API publik Binance Futures oleh browser pengunjung, tanpa server dan tanpa API key.
+// dari API publik Binance Futures (USDT-M) oleh browser pengunjung, tanpa server dan tanpa API key.
 
 export const CONFIG = {
   TOP_COINS: 20,
-  // Selalu ikut dianalisis di luar top koin (emas). Hanya ada di Futures, jadi dilewati jika data dari Spot.
+  // Selalu ikut dianalisis di luar top koin (emas).
   EXTRA_SYMBOLS: ["XAUUSDT"],
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
     "AEURUSDT", "USD1USDT", "XUSDUSDT", "BFUSDUSDT", "RLUSDUSDT", "USDEUSDT",
     "PAXGUSDT", "XAUTUSDT", "WBTCUSDT", "SPCXBUSDT", "SNDKBUSDT", "UUSDT"],
   TIMEFRAMES: ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "4h"],
   CANDLE_LIMIT: 1500,
-  // Timeframe kecil cukup 1000 candle (lebih ringan, dan Spot maksimal 1000).
+  // Timeframe kecil cukup 1000 candle (lebih ringan untuk batas API).
   FAST_LIMIT: 1000,
   EMA_FAST: 20,
   EMA_SLOW: 50,
@@ -205,15 +205,7 @@ const toCandles = (raw) => raw.map((k) => ({
   time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5],
 }));
 
-// Sumber data, dicoba berurutan. Kalau Binance Futures diblokir di jaringan pengunjung,
-// dipakai data Spot (harga hampir sama; sinyal dihitung dengan cara yang sama).
-const SOURCES = [
-  { base: "https://fapi.binance.com", kind: "futures", p: "/fapi/v1" },
-  { base: "https://data-api.binance.vision", kind: "spot", p: "/api/v3" },
-  { base: "https://api.binance.com", kind: "spot", p: "/api/v3" },
-];
-let source = null;
-export const dataSource = () => source?.kind ?? null;
+const BASE = "https://fapi.binance.com/fapi/v1";
 /** Catatan percobaan koneksi (untuk diagnosis: buka situs dengan ?debug). */
 export const attempts = [];
 
@@ -223,25 +215,19 @@ async function fetchWithTimeout(fetchImpl, url, ms) {
   try { return await fetchImpl(url, ctl ? { signal: ctl.signal } : undefined); } finally { if (timer) clearTimeout(timer); }
 }
 
-async function getJson(path, params = {}, fetchImpl = globalThis.fetch, only = null) {
-  const candidates = only || (source ? [source] : SOURCES);
-  let lastError;
-  for (const src of candidates) {
-    const url = `${src.base}${src.p}${path}?${new URLSearchParams(params)}`;
-    const t0 = Date.now();
-    try {
-      const resp = await fetchWithTimeout(fetchImpl, url, source ? 15000 : 7000);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json();
-      if (!source || attempts.length < 40) attempts.push({ url, ok: true, ms: Date.now() - t0 });
-      if (!only) source = src;
-      return json;
-    } catch (e) {
-      lastError = e;
-      attempts.push({ url, ok: false, ms: Date.now() - t0, error: e.name === "AbortError" ? "timeout (tidak ada jawaban)" : String(e.message || e) });
-    }
+async function getJson(path, params = {}, fetchImpl = globalThis.fetch) {
+  const url = `${BASE}${path}?${new URLSearchParams(params)}`;
+  const t0 = Date.now();
+  try {
+    const resp = await fetchWithTimeout(fetchImpl, url, 15000);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const json = await resp.json();
+    if (attempts.length < 40) attempts.push({ url, ok: true, ms: Date.now() - t0 });
+    return json;
+  } catch (e) {
+    attempts.push({ url, ok: false, ms: Date.now() - t0, error: e.name === "AbortError" ? "timeout (tidak ada jawaban)" : String(e.message || e) });
+    throw new Error(`Binance Futures tidak bisa dihubungi (${e.name === "AbortError" ? "timeout" : e.message || e})`);
   }
-  throw new Error(`Binance tidak bisa dihubungi (${lastError?.message || lastError})`);
 }
 
 /** Jumlah candle per timeframe. */
@@ -249,26 +235,62 @@ export const candleLimit = (interval) => (INTERVAL_MS[interval] < INTERVAL_MS["1
 
 /** Candle yang sudah close + candle yang sedang berjalan (terpisah). */
 export async function fetchKlines(symbol, interval, limit = candleLimit(interval), fetchImpl) {
-  // Binance Futures tidak punya candle 1 detik, jadi 1s selalu diambil dari Spot.
-  if (interval === "1s" && source?.kind !== "spot") return fetchSpot1s(symbol, Math.min(limit, 1000), fetchImpl);
-  const lim = source?.kind === "spot" ? Math.min(limit, 1000) : limit;
-  const all = toCandles(await getJson("/klines", { symbol, interval, limit: lim }, fetchImpl));
-  return { closed: all.slice(0, -1), live: all[all.length - 1] };
+  if (interval === "1s") return splitLive(await fetchTradeCandles(symbol, fetchImpl));
+  const all = toCandles(await getJson("/klines", { symbol, interval, limit }, fetchImpl));
+  return splitLive(all);
+}
+const splitLive = (all) => ({ closed: all.slice(0, -1), live: all[all.length - 1] });
+
+// ---------- Candle 1 detik ----------
+// Binance Futures tidak punya kline 1 detik, jadi candle 1 detik dirakit sendiri dari
+// transaksi (aggTrades) Futures: riwayat lewat REST, lalu disambung live lewat WebSocket.
+
+/** Rakit candle per `step` ms dari transaksi [{p, q, T}]; detik tanpa transaksi diisi candle datar. */
+export function tradesToCandles(trades, step = 1000, maxCandles = C.FAST_LIMIT) {
+  const map = new Map();
+  for (const t of trades) addTrade(map, t, step);
+  return candlesFromMap(map, step, maxCandles);
+}
+export function addTrade(map, t, step = 1000) {
+  const time = Math.floor(t.T / step) * step, p = +t.p, q = +t.q;
+  const k = map.get(time);
+  if (!k) map.set(time, { time, open: p, high: p, low: p, close: p, volume: q, lastT: t.T, maxA: t.a ?? -1 });
+  else {
+    k.high = Math.max(k.high, p); k.low = Math.min(k.low, p); k.volume += q; k.maxA = Math.max(k.maxA, t.a ?? -1);
+    if (t.T >= k.lastT) { k.close = p; k.lastT = t.T; }
+  }
+}
+export function candlesFromMap(map, step = 1000, maxCandles = C.FAST_LIMIT, now = null) {
+  const times = [...map.keys()].sort((a, b) => a - b);
+  if (!times.length) return [];
+  const last = now == null ? times[times.length - 1] : Math.max(times[times.length - 1], Math.floor(now / step) * step);
+  const first = Math.max(times[0], last - (maxCandles - 1) * step);
+  for (const t of times) if (t < first) map.delete(t);
+  const out = [];
+  let prev = null;
+  for (let t = first; t <= last; t += step) {
+    const k = map.get(t);
+    if (k) { prev = k; out.push({ time: t, open: k.open, high: k.high, low: k.low, close: k.close, volume: k.volume }); }
+    else if (prev) out.push({ time: t, open: prev.close, high: prev.close, low: prev.close, close: prev.close, volume: 0 });
+  }
+  return out;
 }
 
-/** Candle 1 detik dari Spot. Kontrak 1000PEPE dll. diskalakan agar harganya sama dengan Futures. */
-async function fetchSpot1s(symbol, limit, fetchImpl) {
-  const zeros = symbol.match(/^1(0+)(?=\D)/)?.[1].length ?? 0;
-  const k = 10 ** zeros;
-  const spot = SOURCES.filter((s) => s.kind === "spot");
-  let raw;
-  try {
-    raw = await getJson("/klines", { symbol: symbol.slice(zeros ? zeros + 1 : 0), interval: "1s", limit }, fetchImpl, spot);
-  } catch (e) {
-    throw new Error(`Candle 1 detik untuk ${symbol} tidak tersedia: Binance hanya menyediakannya di pasar Spot, dan koin ini tidak ada di Spot`);
+/** Riwayat transaksi terbaru (maks `pages` x 1000 transaksi) -> Map candle 1 detik. */
+export async function fetchTradeMap(symbol, fetchImpl, pages = 10) {
+  const map = new Map();
+  let batch = await getJson("/aggTrades", { symbol, limit: 1000 }, fetchImpl);
+  for (let i = 0; batch.length; i++) {
+    batch.forEach((t) => addTrade(map, t));
+    if (i + 1 >= pages || map.size >= C.FAST_LIMIT) break;
+    const fromId = Math.max(0, batch[0].a - 1000);
+    if (fromId === batch[0].a) break;
+    batch = (await getJson("/aggTrades", { symbol, fromId, limit: 1000 }, fetchImpl)).filter((t) => t.a < batch[0].a);
   }
-  const all = toCandles(raw).map((c) => ({ ...c, open: c.open * k, high: c.high * k, low: c.low * k, close: c.close * k, volume: c.volume / k }));
-  return { closed: all.slice(0, -1), live: all[all.length - 1] };
+  return map;
+}
+async function fetchTradeCandles(symbol, fetchImpl) {
+  return candlesFromMap(await fetchTradeMap(symbol, fetchImpl), 1000, C.FAST_LIMIT, Date.now());
 }
 
 /** Kontrak perpetual USDT yang sedang aktif: Set nama simbol. */
@@ -279,25 +301,15 @@ export async function fetchPerpetuals(fetchImpl) {
     .map((s) => s.symbol));
 }
 
-const STABLE = /^(USDC|FDUSD|TUSD|USDP|BUSD|DAI|EUR|EURI|AEUR|PYUSD|USD1|XUSD|BFUSD|RLUSD|USDE|U|PAXG|XAUT|WBTC)USDT$/;
-
-/** N koin dengan volume 24 jam terbesar (Futures: hanya yang punya kontrak perpetual), tanpa stablecoin. */
+/** N kontrak perpetual USDT dengan volume 24 jam terbesar, tanpa stablecoin (CONFIG.EXCLUDE). */
 export async function topSymbols(n = C.TOP_COINS, fetchImpl) {
   const tickers = await getJson("/ticker/24hr", {}, fetchImpl);
-  let ok;
-  if (source.kind === "futures") {
-    const perps = await fetchPerpetuals(fetchImpl);
-    ok = (t) => perps.has(t.symbol);
-  } else {
-    ok = (t) => !/(UP|DOWN|BULL|BEAR)USDT$/.test(t.symbol) && !STABLE.test(t.symbol);
-  }
+  const perps = await fetchPerpetuals(fetchImpl);
   const top = tickers
-    .filter((t) => t.symbol.endsWith("USDT") && ok(t) && !C.EXCLUDE.includes(t.symbol) && +t.quoteVolume > 0)
+    .filter((t) => t.symbol.endsWith("USDT") && perps.has(t.symbol) && !C.EXCLUDE.includes(t.symbol) && +t.quoteVolume > 0)
     .sort((a, b) => +b.quoteVolume - +a.quoteVolume)
     .slice(0, n);
-  const extras = source.kind === "futures"
-    ? tickers.filter((t) => C.EXTRA_SYMBOLS.includes(t.symbol) && !top.includes(t))
-    : [];
+  const extras = tickers.filter((t) => C.EXTRA_SYMBOLS.includes(t.symbol) && !top.includes(t));
   return [...top, ...extras]
     .map((t) => ({ symbol: t.symbol, price: +t.lastPrice, change: +t.priceChangePercent, volume: +t.quoteVolume }));
 }
@@ -306,14 +318,7 @@ export async function fetchTickers(fetchImpl) {
   return getJson("/ticker/price", {}, fetchImpl);
 }
 
-// Nama kontrak Futures untuk koin yang harganya sangat kecil (dipakai saat data dari Spot).
-const FUT_PREFIX = { PEPE: "1000PEPE", SHIB: "1000SHIB", BONK: "1000BONK", FLOKI: "1000FLOKI", LUNC: "1000LUNC", XEC: "1000XEC", SATS: "1000SATS", RATS: "1000RATS", CAT: "1000CAT", CHEEMS: "1000CHEEMS", MOG: "1000000MOG" };
-export const futuresSymbol = (symbol) => {
-  if (/^\d/.test(symbol)) return symbol;
-  const b = symbol.replace(/USDT$/, "");
-  return (FUT_PREFIX[b] || b) + "USDT";
-};
-export const tradeUrl = (symbol) => `https://www.binance.bh/en/futures/${futuresSymbol(symbol)}`;
+export const tradeUrl = (symbol) => `https://www.binance.bh/en/futures/${symbol}`;
 
 /** Nama koin untuk logo/tampilan: 1000PEPEUSDT -> PEPE. */
 export const baseAsset = (symbol) => symbol.replace(/USDT$/, "").replace(/^1000+/, "");

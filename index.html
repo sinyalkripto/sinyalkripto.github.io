@@ -17,7 +17,7 @@
     document.documentElement.setAttribute("data-theme", t);
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=5">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -105,7 +105,10 @@
 
   <section id="analisis">
     <h2 class="reveal">Analisis teknikal</h2>
-    <p class="section-sub reveal" id="analysis-sub">Gabungan 12 moving average dan 8 osilator, dengan metode seperti rating teknikal TradingView.</p>
+    <p class="section-sub reveal" id="analysis-sub">Gabungan 31 indikator: 17 indikator tren dan 14 osilator.</p>
+    <h3 class="reveal" style="margin:0 0 6px;font-size:17px">Arah tiap timeframe</h3>
+    <p class="muted reveal" id="tf-sum" style="margin:0 0 12px;font-size:14px"></p>
+    <div class="tf-dirs reveal" id="tf-dirs"></div>
     <div class="analysis reveal" id="gauges"></div>
     <details class="more reveal"><summary>Lihat detail tiap indikator</summary><div id="ind-detail" class="analysis" style="margin-top:8px"></div></details>
   </section>
@@ -135,6 +138,6 @@
   </footer>
 </main>
 
-<script type="module" src="app.js?v=4"></script>
+<script type="module" src="app.js?v=5"></script>
 </body>
 </html>
