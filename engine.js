@@ -4,6 +4,8 @@
 
 export const CONFIG = {
   TOP_COINS: 20,
+  // Selalu ikut dianalisis di luar top koin (emas). Hanya ada di Futures, jadi dilewati jika data dari Spot.
+  EXTRA_SYMBOLS: ["XAUUSDT"],
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
     "AEURUSDT", "USD1USDT", "XUSDUSDT", "BFUSDUSDT", "RLUSDUSDT", "USDEUSDT",
     "PAXGUSDT", "XAUTUSDT", "WBTCUSDT", "SPCXBUSDT", "SNDKBUSDT", "UUSDT"],
@@ -267,10 +269,14 @@ export async function topSymbols(n = C.TOP_COINS, fetchImpl) {
   } else {
     ok = (t) => !/(UP|DOWN|BULL|BEAR)USDT$/.test(t.symbol) && !STABLE.test(t.symbol);
   }
-  return tickers
+  const top = tickers
     .filter((t) => t.symbol.endsWith("USDT") && ok(t) && !C.EXCLUDE.includes(t.symbol) && +t.quoteVolume > 0)
     .sort((a, b) => +b.quoteVolume - +a.quoteVolume)
-    .slice(0, n)
+    .slice(0, n);
+  const extras = source.kind === "futures"
+    ? tickers.filter((t) => C.EXTRA_SYMBOLS.includes(t.symbol) && !top.includes(t))
+    : [];
+  return [...top, ...extras]
     .map((t) => ({ symbol: t.symbol, price: +t.lastPrice, change: +t.priceChangePercent, volume: +t.quoteVolume }));
 }
 
