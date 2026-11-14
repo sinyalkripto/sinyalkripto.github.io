@@ -30,6 +30,9 @@ export const CONFIG = {
   TAKE_PROFIT_ATR: 1.0,
   // Lewati sinyal yang target TP-nya terlalu kecil dibanding biaya (TP minimal 0,6% dari harga).
   MIN_TAKE_PROFIT_PERCENT: 0.6,
+  // Pengaman di bawah 4 jam: lewati sinyal kalau stop loss lebih dari 8% dari harga masuk
+  // (koin yang sedang pump/dump liar). Di backtest hampir tidak mengubah hasil, tapi mencegah risiko ekstrem.
+  MAX_STOP_LOSS_PERCENT: 8,
   // Posisi yang belum kena TP/SL ditutup setelah sekian candle.
   MAX_HOLD_CANDLES: 48,
   EXIT_ON_SELL_SIGNAL: false,
@@ -110,7 +113,7 @@ export function alignTrend(candles, trendCandles) {
  * Sinyal LONG ("BELI"): tren 4 jam naik, EMA 20 > EMA 50, harga di atas EMA 200, ADX >= 20,
  * dan RSI baru naik kembali menembus 40 (koreksi selesai). SHORT kebalikannya (RSI turun menembus 60).
  */
-export function addIndicators(candles, trendCandles = null) {
+export function addIndicators(candles, trendCandles = null, maxSlPercent = trendCandles ? C.MAX_STOP_LOSS_PERCENT : Infinity) {
   const close = candles.map((k) => k.close);
   const emaFast = ema(close, C.EMA_FAST), emaSlow = ema(close, C.EMA_SLOW), emaTrend = ema(close, C.EMA_TREND);
   const r = rsi(close, C.RSI_PERIOD), a = atr(candles, C.ATR_PERIOD), x = adx(candles, C.ADX_PERIOD).adx;
@@ -126,7 +129,8 @@ export function addIndicators(candles, trendCandles = null) {
     const downTrend = emaFast[i] < emaSlow[i] && k.close < emaTrend[i] && (!trend || trend[i] === "turun");
     const rsiUp = r[i - 1] < C.RSI_PULLBACK_LONG && r[i] >= C.RSI_PULLBACK_LONG;
     const rsiDown = r[i - 1] > C.RSI_PULLBACK_SHORT && r[i] <= C.RSI_PULLBACK_SHORT;
-    const ok = warm && strong && bigEnough;
+    const sane = slDist / k.close * 100 <= maxSlPercent;
+    const ok = warm && strong && bigEnough && sane;
     const buy = ok && upTrend && rsiUp;
     const short = ok && shortOn && downTrend && rsiDown;
     let signal = "TAHAN";
