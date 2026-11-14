@@ -3,7 +3,7 @@
 // dari API publik Binance Futures (USDT-M) oleh browser pengunjung, tanpa server dan tanpa API key.
 
 export const CONFIG = {
-  TOP_COINS: 20,
+  TOP_COINS: 40, // riset 180 hari (riset.html): 40 koin ≈ 4 sinyal 1 jam per hari, win ±70%
   // Selalu ikut dianalisis di luar top koin (emas).
   EXTRA_SYMBOLS: ["XAUUSDT"],
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
@@ -407,13 +407,20 @@ export async function fetchPerpetuals(fetchImpl) {
   return (await connect(fetchImpl)).symbols(fetchImpl);
 }
 
-/** N kontrak perpetual USDT dengan volume 24 jam terbesar, tanpa stablecoin (CONFIG.EXCLUDE). */
+/** Koin kripto biasa: bukan token saham (NVDAB, TSLAB, …) dan nama simbol ASCII. */
+export function isCryptoSymbol(symbol) {
+  if (!/^[A-Z0-9]+USDT$/.test(symbol) || C.EXCLUDE.includes(symbol)) return false;
+  const base = symbol.replace(/USDT$/, "");
+  return !(/^[A-Z]{2,5}B$/.test(base) && !["BNB", "ARB", "SHIB", "BEB"].includes(base));
+}
+
+/** N kontrak perpetual USDT dengan volume 24 jam terbesar, tanpa stablecoin (CONFIG.EXCLUDE) dan token saham. */
 export async function topSymbols(n = C.TOP_COINS, fetchImpl) {
   const src = await connect(fetchImpl);
   const tickers = await src.tickers24(fetchImpl);
   const perps = await src.symbols(fetchImpl);
   const top = tickers
-    .filter((t) => t.symbol.endsWith("USDT") && perps.has(t.symbol) && !C.EXCLUDE.includes(t.symbol) && t.volume > 0)
+    .filter((t) => isCryptoSymbol(t.symbol) && perps.has(t.symbol) && t.volume > 0)
     .sort((a, b) => b.volume - a.volume)
     .slice(0, n);
   const extras = tickers.filter((t) => C.EXTRA_SYMBOLS.includes(t.symbol) && perps.has(t.symbol) && !top.includes(t));
