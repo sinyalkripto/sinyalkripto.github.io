@@ -1,6 +1,6 @@
 # Sinyal Kripto
 
-Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 30 koin teratas
+Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 40 koin teratas
 Binance Futures.
 
 ## Strategi: pullback searah tren
@@ -42,7 +42,7 @@ supaya win rate di atas 60%.
 Menambah koin menambah sinyal dengan win rate tetap sekitar 70%, tapi profit factor di sekitar 1
 (impas setelah biaya) dan sepertiga terakhir di bawah 1 untuk semua kelompok. Memilih koin dari hasil
 paruh pertama tidak membantu di paruh kedua (PF 0,98 vs 0,98), jadi koin dipilih menurut volume saja.
-Situs memantau 30 koin kripto teratas (token saham seperti NVDAB/TSLAB tidak ikut).
+Situs memantau 40 koin kripto teratas (token saham seperti NVDAB/TSLAB tidak ikut).
 
 ## Di situs
 

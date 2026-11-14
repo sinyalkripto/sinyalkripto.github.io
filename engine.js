@@ -3,7 +3,7 @@
 // dari API publik Binance Futures (USDT-M) oleh browser pengunjung, tanpa server dan tanpa API key.
 
 export const CONFIG = {
-  TOP_COINS: 30, // riset 180 hari (riset.html): 30 koin ≈ 3 sinyal 1 jam per hari, win ±70%
+  TOP_COINS: 40, // riset 180 hari (riset.html): 40 koin ≈ 4 sinyal 1 jam per hari, win ±70%
   // Selalu ikut dianalisis di luar top koin (emas).
   EXTRA_SYMBOLS: ["XAUUSDT"],
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
