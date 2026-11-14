@@ -47,5 +47,8 @@ Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV d
 - `globe.js`: animasi bumi di halaman pembuka.
 - `riset/uji-strategi.mjs`: uji strategi di data historis.
 
-Semua data diambil langsung dari API publik Binance Futures oleh browser pengunjung.
+Semua data diambil langsung dari API publik oleh browser pengunjung. Urutan sumber: Binance Futures,
+lalu Bybit (kontrak perpetual USDT, api.bybit.com lalu api.bytick.com) kalau Binance diblokir di
+jaringan pengunjung, dan terakhir Binance Spot (data-api.binance.vision). Situs memberi tahu kalau
+memakai sumber cadangan. Buka dengan `?debug` untuk melihat sumber mana yang berhasil.
 Tidak ada server, akun, atau API key. Bukan nasihat keuangan. Trading futures berisiko tinggi.
