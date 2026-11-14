@@ -30,6 +30,14 @@ Catatan: reward:risk 0,5 ini sengaja di bawah aturan minimal 1 di skill trader (
 reward:risk 1, win rate terbaik di data yang sama sekitar 57% (PF 1,10), jadi dipilih TP lebih dekat
 supaya win rate di atas 60%.
 
+## Di situs
+
+- Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
+  ditandai **eksperimen** karena di uji historis belum untung bersih setelah biaya.
+- Bagian **Hasil live** mencatat sinyal yang muncul sejak pelacakan dimulai (di browser pengunjung,
+  localStorage), lalu menampilkan win rate dan profit factor-nya di samping angka backtest. Tombol
+  "Mulai ulang pelacakan" mengosongkan catatan.
+
 Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV dari crypto-signal-bot/data).
 
 ## File
