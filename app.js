@@ -521,6 +521,8 @@ function renderSignals() {
     </tr>`;
   }).join("") : `<tr><td colspan="9" class="empty">Belum ada sinyal baru untuk pilihan ini. Sinyal muncul saat candle tutup, halaman ini memperbarui sendiri.</td></tr>`;
 
+  renderWhy(trades, active.length);
+
   // Riwayat: sinyal 7 hari terakhir yang sudah selesai, tanpa tombol pasang posisi.
   const done = trades.filter((t) => !t.open && now - t.entryTime < 7 * 864e5).slice(0, 60);
   const wins = done.filter((t) => t.ret > 0).length;
@@ -532,6 +534,42 @@ function renderSignals() {
     return `<tr><td>${fmtTime(t.entryTime)}</td><td>${coin(t)}</td><td><span class="side ${t.side}">${t.side}</span></td>
       <td class="r">${fmtPrice(t.entry)}</td><td class="r muted">${fmtPrice(t.sl)}</td><td class="r muted">${fmtPrice(t.tp)}</td><td>${status}</td></tr>`;
   }).join("") : `<tr><td colspan="7" class="empty">Belum ada.</td></tr>`;
+}
+
+// Kondisi tiap koin di candle terakhir yang sudah tutup: syarat mana yang belum terpenuhi.
+function renderWhy(trades, nActive) {
+  const tf = S.sigTf === "all" ? MAIN_TF : S.sigTf;
+  const lastSig = new Map();
+  for (const t of allTrades()) if (t.tf === tf && !lastSig.has(t.sym)) lastSig.set(t.sym, t);
+  const rows = Object.keys(S.res).map((sym) => ({ sym, r: S.res[sym][tf] })).filter((x) => x.r?.last);
+  // Dibuka otomatis sekali saat data pertama siap dan tidak ada sinyal aktif; setelah itu ikut pilihan pengguna.
+  if (!S.whyInit && rows.length) { S.whyInit = true; $("#why-box").open = !nActive; }
+  $("#why-sub").textContent = `Timeframe ${TF_LABEL[tf]}, dari candle terakhir yang sudah tutup. Sinyal butuh semua syarat ini sekaligus: tren 4 jam dan tren di timeframe ini searah, ADX minimal ${CONFIG.ADX_MIN} (pasar bertren, bukan sideways), lalu RSI balik arah lewat ${CONFIG.RSI_PULLBACK_LONG} (long) atau ${CONFIG.RSI_PULLBACK_SHORT} (short). Syarat ini sengaja ketat, jadi wajar kalau berjam-jam atau 1–3 hari tidak ada sinyal.`;
+  const label = (v) => v === "naik" ? `<span class="up">Naik</span>` : v === "turun" ? `<span class="down">Turun</span>` : `<span class="muted">Campur</span>`;
+  const list = rows.map(({ sym, r }) => {
+    const l = r.last, usesT = l.trend != null;
+    const tfTrend = l.emaFast > l.emaSlow && l.close > l.emaTrend ? "naik" : l.emaFast < l.emaSlow && l.close < l.emaTrend ? "turun" : "campur";
+    const t4 = usesT ? l.trend : tfTrend;
+    const same = tfTrend !== "campur" && tfTrend === t4;
+    const strong = l.adx >= CONFIG.ADX_MIN;
+    const big = CONFIG.TAKE_PROFIT_ATR * l.atr / l.close * 100 >= CONFIG.MIN_TAKE_PROFIT_PERCENT;
+    let wait, score;
+    if (!same) { wait = "Tren belum searah, tunggu"; score = 3; }
+    else if (!strong) { wait = "Pasar sideways (ADX rendah), tunggu tren menguat"; score = 2; }
+    else if (!big) { wait = "Gerak harga terlalu kecil, tunggu volatilitas naik"; score = 2; }
+    else if (tfTrend === "naik") {
+      wait = l.rsi < CONFIG.RSI_PULLBACK_LONG ? `<b class="up">Dekat sinyal LONG</b>: RSI naik lewat ${CONFIG.RSI_PULLBACK_LONG}` : `Tunggu harga turun sebentar (RSI ke bawah ${CONFIG.RSI_PULLBACK_LONG}), lalu LONG saat RSI naik lagi`;
+      score = l.rsi < CONFIG.RSI_PULLBACK_LONG ? 0 : 1;
+    } else {
+      wait = l.rsi > CONFIG.RSI_PULLBACK_SHORT ? `<b class="down">Dekat sinyal SHORT</b>: RSI turun lewat ${CONFIG.RSI_PULLBACK_SHORT}` : `Tunggu harga naik sebentar (RSI ke atas ${CONFIG.RSI_PULLBACK_SHORT}), lalu SHORT saat RSI turun lagi`;
+      score = l.rsi > CONFIG.RSI_PULLBACK_SHORT ? 0 : 1;
+    }
+    const ls = lastSig.get(sym);
+    return { score, html: `<tr><td>${logo(sym, "sm")} ${esc(baseAsset(sym))}</td><td>${usesT ? label(t4) : "–"}</td><td>${label(tfTrend)}</td>
+      <td class="r ${strong ? "" : "muted"}">${l.adx.toFixed(0)}</td><td class="r">${l.rsi.toFixed(0)}</td><td>${wait}</td>
+      <td class="muted">${ls ? `${fmtTime(ls.entryTime)} ${ls.side}` : "–"}</td></tr>` };
+  }).sort((a, b) => a.score - b.score);
+  $("#why").innerHTML = list.length ? list.map((x) => x.html).join("") : `<tr><td colspan="7" class="empty">Memuat…</td></tr>`;
 }
 
 function renderBacktest() {

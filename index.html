@@ -125,6 +125,10 @@
     <p class="section-sub reveal">Jam masuk dalam WIB. Sinyal muncul saat candle tutup, jadi masuklah sebelum batas berlakunya.</p>
     <div class="filters reveal"><div class="seg" id="sig-tf"></div><div class="seg" id="sig-side"></div></div>
     <div class="table-wrap reveal"><table class="sig"><thead><tr><th>Masuk (WIB)</th><th>Koin</th><th>Arah</th><th class="r">Harga</th><th class="r">Stop loss</th><th class="r">Take profit</th><th>Status</th><th>Perkiraan TP</th><th></th></tr></thead><tbody id="signals"></tbody></table></div>
+    <details class="reveal hist" id="why-box"><summary id="why-sum">Kenapa belum ada sinyal? Kondisi tiap koin sekarang</summary>
+      <p class="muted" style="font-size:13px;margin:8px 0" id="why-sub"></p>
+      <div class="table-wrap"><table class="sig"><thead><tr><th>Koin</th><th>Tren 4j</th><th>Tren TF</th><th class="r">ADX</th><th class="r">RSI</th><th>Yang ditunggu</th><th>Sinyal terakhir</th></tr></thead><tbody id="why"></tbody></table></div>
+    </details>
     <details class="reveal hist"><summary id="hist-sum">Riwayat 7 hari</summary>
       <p class="muted" style="font-size:13px;margin:8px 0">Sinyal yang sudah selesai (kena TP, SL, atau batas waktu). Hanya untuk dilihat, jangan dipasang lagi.</p>
       <div class="table-wrap" style="opacity:.85"><table class="sig"><thead><tr><th>Masuk (WIB)</th><th>Koin</th><th>Arah</th><th class="r">Harga</th><th class="r">Stop loss</th><th class="r">Take profit</th><th>Hasil</th></tr></thead><tbody id="history"></tbody></table></div>
@@ -150,6 +154,6 @@
   </footer>
 </main>
 
-<script type="module" src="app.js?v=9"></script>
+<script type="module" src="app.js?v=10"></script>
 </body>
 </html>
