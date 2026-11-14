@@ -1,4 +1,4 @@
-// Mesin sinyal versi JavaScript: port 1:1 dari signals.py dan backtest.py.
+// Mesin sinyal versi JavaScript (strategi pullback searah tren, lihat CONFIG).
 // Jalan di browser (GitHub Pages) dan di Node (untuk tes). Semua data diambil langsung
 // dari API publik Binance Futures (USDT-M) oleh browser pengunjung, tanpa server dan tanpa API key.
 
@@ -13,17 +13,25 @@ export const CONFIG = {
   CANDLE_LIMIT: 1500,
   // Timeframe kecil cukup 1000 candle (lebih ringan untuk batas API).
   FAST_LIMIT: 1000,
+  // Strategi "pullback searah tren" (diuji di data 6 bulan, 19 koin; lihat README):
+  // masuk saat RSI memantul dari koreksi kecil di dalam tren yang jelas, TP dekat, SL lebih lebar.
   EMA_FAST: 20,
   EMA_SLOW: 50,
+  EMA_TREND: 200,
   RSI_PERIOD: 14,
-  RSI_BUY_MAX: 70,
-  RSI_SELL_MIN: 30,
+  RSI_PULLBACK_LONG: 40, // long: RSI naik kembali menembus 40
+  RSI_PULLBACK_SHORT: 60, // short: RSI turun kembali menembus 60
+  ADX_PERIOD: 14,
+  ADX_MIN: 20, // hanya saat pasar sedang bertren (bukan sideways)
   TREND_FILTER: "4h",
   ENABLE_SHORT: true,
   ATR_PERIOD: 14,
-  STOP_LOSS_ATR: 1.5,
-  TAKE_PROFIT_ATR: 3.0,
-  MIN_STOP_LOSS_PERCENT: 0.5,
+  STOP_LOSS_ATR: 2.0,
+  TAKE_PROFIT_ATR: 1.0,
+  // Lewati sinyal yang target TP-nya terlalu kecil dibanding biaya (TP minimal 0,6% dari harga).
+  MIN_TAKE_PROFIT_PERCENT: 0.6,
+  // Posisi yang belum kena TP/SL ditutup setelah sekian candle.
+  MAX_HOLD_CANDLES: 48,
   EXIT_ON_SELL_SIGNAL: false,
   FEE_PERCENT: 0.05,
 };
@@ -63,6 +71,23 @@ export function atr(candles, period = 14) {
   return ewm(tr, 1 / period);
 }
 
+/** ADX (Wilder) + arah DI: { adx[], plus[], minus[] }. */
+export function adx(candles, period = 14) {
+  const n = candles.length, tr = new Array(n), pdm = new Array(n), mdm = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const k = candles[i];
+    if (!i) { tr[i] = k.high - k.low; pdm[i] = 0; mdm[i] = 0; continue; }
+    const p = candles[i - 1], up = k.high - p.high, dn = p.low - k.low;
+    tr[i] = Math.max(k.high - k.low, Math.abs(k.high - p.close), Math.abs(k.low - p.close));
+    pdm[i] = up > dn && up > 0 ? up : 0;
+    mdm[i] = dn > up && dn > 0 ? dn : 0;
+  }
+  const a = ewm(tr, 1 / period), plus = ewm(pdm, 1 / period).map((x, i) => 100 * x / a[i]);
+  const minus = ewm(mdm, 1 / period).map((x, i) => 100 * x / a[i]);
+  const dx = plus.map((x, i) => (x + minus[i] ? 100 * Math.abs(x - minus[i]) / (x + minus[i]) : 0));
+  return { adx: ewm(dx, 1 / period), plus, minus };
+}
+
 // ---------- Sinyal ----------
 
 /** Tren per candle dari timeframe besar, hanya memakai candle tren yang sudah close. */
@@ -80,38 +105,40 @@ export function alignTrend(candles, trendCandles) {
   return out;
 }
 
-/** candles: [{time(ms, open time), open, high, low, close, volume}] candle yang sudah close. */
+/**
+ * candles: [{time(ms, open time), open, high, low, close, volume}] candle yang sudah close.
+ * Sinyal LONG ("BELI"): tren 4 jam naik, EMA 20 > EMA 50, harga di atas EMA 200, ADX >= 20,
+ * dan RSI baru naik kembali menembus 40 (koreksi selesai). SHORT kebalikannya (RSI turun menembus 60).
+ */
 export function addIndicators(candles, trendCandles = null) {
   const close = candles.map((k) => k.close);
-  const emaFast = ema(close, C.EMA_FAST), emaSlow = ema(close, C.EMA_SLOW);
-  const r = rsi(close, C.RSI_PERIOD), a = atr(candles, C.ATR_PERIOD);
+  const emaFast = ema(close, C.EMA_FAST), emaSlow = ema(close, C.EMA_SLOW), emaTrend = ema(close, C.EMA_TREND);
+  const r = rsi(close, C.RSI_PERIOD), a = atr(candles, C.ATR_PERIOD), x = adx(candles, C.ADX_PERIOD).adx;
   const trend = trendCandles ? alignTrend(candles, trendCandles) : null;
   const shortOn = C.ENABLE_SHORT;
-  let prevAbove = null;
   return candles.map((k, i) => {
-    const slDist = Math.max(C.STOP_LOSS_ATR * a[i], k.close * C.MIN_STOP_LOSS_PERCENT / 100);
-    const tpDist = slDist * C.TAKE_PROFIT_ATR / C.STOP_LOSS_ATR;
-    const above = emaFast[i] > emaSlow[i];
-    const crossUp = above && !(prevAbove ?? false);
-    const crossDown = !above && (prevAbove ?? true);
-    prevAbove = above;
-    const warm = i >= C.EMA_SLOW;
-    let buy = warm && crossUp && r[i] < C.RSI_BUY_MAX;
-    const sell = warm && crossDown && r[i] > C.RSI_SELL_MIN;
-    let short = sell && shortOn;
-    if (trend) {
-      buy = buy && trend[i] === "naik";
-      short = short && trend[i] === "turun";
-    }
+    const slDist = C.STOP_LOSS_ATR * a[i];
+    const tpDist = C.TAKE_PROFIT_ATR * a[i];
+    const warm = i >= C.EMA_TREND && i > 0;
+    const strong = x[i] >= C.ADX_MIN;
+    const bigEnough = tpDist / k.close * 100 >= C.MIN_TAKE_PROFIT_PERCENT;
+    const upTrend = emaFast[i] > emaSlow[i] && k.close > emaTrend[i] && (!trend || trend[i] === "naik");
+    const downTrend = emaFast[i] < emaSlow[i] && k.close < emaTrend[i] && (!trend || trend[i] === "turun");
+    const rsiUp = r[i - 1] < C.RSI_PULLBACK_LONG && r[i] >= C.RSI_PULLBACK_LONG;
+    const rsiDown = r[i - 1] > C.RSI_PULLBACK_SHORT && r[i] <= C.RSI_PULLBACK_SHORT;
+    const ok = warm && strong && bigEnough;
+    const buy = ok && upTrend && rsiUp;
+    const short = ok && shortOn && downTrend && rsiDown;
     let signal = "TAHAN";
     if (buy) signal = "BELI";
-    if (sell) signal = "JUAL";
     if (short) signal = "SHORT";
     return {
-      ...k, emaFast: emaFast[i], emaSlow: emaSlow[i], rsi: r[i], atr: a[i],
+      ...k, emaFast: emaFast[i], emaSlow: emaSlow[i], emaTrend: emaTrend[i], rsi: r[i], atr: a[i], adx: x[i],
       stopLoss: k.close - slDist, takeProfit: k.close + tpDist,
       shortStopLoss: k.close + slDist, shortTakeProfit: k.close - tpDist,
-      crossUp: warm && crossUp, crossDown: warm && crossDown,
+      // Dipakai EXIT_ON_SELL_SIGNAL: tren kecil berbalik.
+      crossUp: warm && emaFast[i] > emaSlow[i] && i > 0 && emaFast[i - 1] <= emaSlow[i - 1],
+      crossDown: warm && emaFast[i] < emaSlow[i] && i > 0 && emaFast[i - 1] >= emaSlow[i - 1],
       trend: trend ? trend[i] : null, signal,
     };
   });
@@ -131,19 +158,21 @@ export function simulate(rows, side, interval) {
   const entrySignal = long ? "BELI" : "SHORT";
   const step = INTERVAL_MS[interval] || 0;
   const trades = [];
-  let pos = null;
+  let pos = null, held = 0;
   const pnl = (entry, price) => {
     const change = long ? price / entry - 1 : 1 - price / entry;
     return (1 + change) * (1 - fee) ** 2 - 1;
   };
   for (const row of rows) {
     if (pos) {
+      held++;
       const hitSl = long ? row.low <= pos.sl : row.high >= pos.sl;
       const hitTp = long ? row.high >= pos.tp : row.low <= pos.tp;
       let exit = null, result = null;
       if (hitSl) { exit = pos.sl; result = "SL"; }
       else if (hitTp) { exit = pos.tp; result = "TP"; }
       else if (C.EXIT_ON_SELL_SIGNAL && (long ? row.crossDown : row.crossUp)) { exit = row.close; result = "REVERSE"; }
+      else if (held >= C.MAX_HOLD_CANDLES) { exit = row.close; result = "WAKTU"; }
       if (exit !== null) {
         // Harga menyentuh level di antara buka dan tutup candle ini.
         trades.push({ ...pos, exit, result, ret: pnl(pos.entry, exit), hitFrom: row.time, hitTo: row.time + step });
@@ -152,6 +181,7 @@ export function simulate(rows, side, interval) {
       }
     }
     if (!pos && row.signal === entrySignal) {
+      held = 0;
       pos = {
         side: long ? "LONG" : "SHORT", entry: row.close, entryTime: row.time + step,
         sl: long ? row.stopLoss : row.shortStopLoss, tp: long ? row.takeProfit : row.shortTakeProfit,
@@ -166,9 +196,14 @@ export function simulate(rows, side, interval) {
     peak = Math.max(peak, equity);
     maxDd = Math.max(maxDd, 1 - equity / peak);
   }
+  const gain = returns.filter((x) => x > 0).reduce((a, x) => a + x, 0);
+  const loss = -returns.filter((x) => x <= 0).reduce((a, x) => a + x, 0);
   return {
     trades: returns.length,
     winRate: returns.length ? returns.filter((x) => x > 0).length / returns.length * 100 : 0,
+    // Profit factor: total untung / total rugi. Di atas 1 berarti untung bersih setelah biaya.
+    profitFactor: loss ? gain / loss : gain ? Infinity : NaN,
+    gain, loss,
     return: (equity - 1) * 100,
     maxDd: maxDd * 100,
     tp: trades.filter((t) => t.result === "TP").length,

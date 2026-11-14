@@ -1,6 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js?v=5";
+} from "./engine.js?v=6";
 import { startGlobe } from "./globe.js?v=3";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
@@ -443,6 +443,7 @@ function renderSignals() {
       if (e) est = `± ${fmtTime(e.at)}`;
     } else if (t.result === "TP") status = `<span class="up">▲ Kena TP ${fmtTime(t.hitFrom)}–${fmtClock(t.hitTo)} · ${fmtPct(t.ret * 100, 1)}</span>`;
     else if (t.result === "SL") status = `<span class="down">▼ Kena SL ${fmtTime(t.hitFrom)}–${fmtClock(t.hitTo)} · ${fmtPct(t.ret * 100, 1)}</span>`;
+    else if (t.result === "WAKTU") status = `<span class="${t.ret >= 0 ? "up" : "down"}">Ditutup batas waktu ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`;
     else status = "Ditutup";
     return `<tr>
       <td>${fmtTime(t.entryTime)}</td>
@@ -461,12 +462,16 @@ function renderBacktest() {
     const rs = Object.values(S.res).map((r) => r[tf]?.sides[side]).filter((x) => x && x.trades);
     if (!rs.length) continue;
     const avg = rs.reduce((a, x) => a + x.return, 0) / rs.length;
-    const win = rs.reduce((a, x) => a + x.winRate, 0) / rs.length;
+    // Win rate dan profit factor dihitung dari gabungan semua trade (bukan rata-rata per koin).
+    const n = rs.reduce((a, x) => a + x.closed.length, 0);
+    const wins = rs.reduce((a, x) => a + x.closed.filter((t) => t.ret > 0).length, 0);
+    const gain = rs.reduce((a, x) => a + x.gain, 0), loss = rs.reduce((a, x) => a + x.loss, 0);
+    const win = n ? wins / n * 100 : NaN, pf = loss ? gain / loss : gain ? Infinity : NaN;
     const tm = timingFor("", tf, side);
-    html.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]} · ${side === "long" ? "Long" : "Short"}</span><b class="${avg >= 0 ? "up" : "down"}">${fmtPct(avg, 1)}</b><span class="muted" style="font-size:13px">${rs.filter((x) => x.return > 0).length}/${rs.length} koin untung · win ${nf(0).format(win)}%${tm.samples ? ` · TP ± ${fmtDur(tm.median)}` : ""}</span></div>`);
+    html.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]} · ${side === "long" ? "Long" : "Short"}</span><b class="${avg >= 0 ? "up" : "down"}">${fmtPct(avg, 1)}</b><span class="muted" style="font-size:13px">Win ${Number.isNaN(win) ? "–" : nf(0).format(win) + "%"} dari ${n} trade · PF ${pf === Infinity ? "∞ (belum ada rugi)" : Number.isFinite(pf) ? nf(2).format(pf) : "–"}</span><span class="muted" style="font-size:13px">${rs.filter((x) => x.return > 0).length}/${rs.length} koin untung${tm.samples ? ` · TP ± ${fmtDur(tm.median)}` : ""}</span></div>`);
   }
   $("#bt").innerHTML = html.join("") || `<p class="empty">Memuat…</p>`;
-  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1m ≈ 17 jam, 5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi.";
+  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1m ≈ 17 jam, 5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi. PF (profit factor) = total untung dibagi total rugi; di atas 1 berarti untung bersih. Win rate tinggi belum tentu untung, karena TP sengaja lebih dekat dari SL.";
 }
 
 // ---------- Analisis teknikal: arah LONG/SHORT per timeframe ----------
@@ -508,6 +513,16 @@ function tfDirection(sym, tf) {
   return d;
 }
 
+/** Win rate sinyal bot (TP/SL) di koin + timeframe ini, dari backtest candle yang dimuat. */
+function botWin(sym, tf) {
+  const r = S.res[sym]?.[tf];
+  if (!r) return "";
+  const closed = sides().flatMap((side) => r.sides[side].closed);
+  if (!closed.length) return `<span class="muted" style="font-size:12px">Sinyal bot: belum ada trade</span>`;
+  const w = closed.filter((t) => t.ret > 0).length / closed.length * 100;
+  return `<span class="muted" style="font-size:12px" title="Trade sinyal bot (TP/SL) yang ditutup untung di candle yang dimuat">Win bot ${nf(0).format(w)}% (${closed.length})</span>`;
+}
+
 function renderTfDirections() {
   const cards = TFS.map((tf) => {
     const d = tfDirection(S.sel, tf);
@@ -524,6 +539,7 @@ function renderTfDirections() {
       <span class="side ${side}" style="font-size:14px">${dirWord(rt.sAll, rt.dir)}</span>
       <span class="muted" style="font-size:12px">${nL} long · ${nS} short · ${all.length - nL - nS} netral</span>
       <span class="muted" style="font-size:12px">${Number.isNaN(acc.acc) ? "Akurasi –" : `Akurasi ${nf(0).format(acc.acc)}% <span title="Dari ${acc.total} candle terakhir: arah rating dibanding harga ${AHEAD} candle sesudahnya">(${acc.total})</span>`}</span>
+      ${botWin(S.sel, tf)}
     </button>`;
   });
   $("#tf-dirs").innerHTML = cards.join("");
