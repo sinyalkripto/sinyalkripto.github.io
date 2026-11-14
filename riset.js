@@ -1,6 +1,6 @@
 // Riset jumlah koin: ambil riwayat panjang untuk koin bervolume terbesar, jalankan strategi
 // yang sama (engine.js), lalu ringkas sinyal per hari, win rate, dan profit factor per kelompok koin.
-import { CONFIG, analyze, connect } from "./engine.js?v=8";
+import { CONFIG, analyze, connect, isCryptoSymbol } from "./engine.js?v=9";
 
 const DAYS = 180;              // jendela evaluasi
 const N_COINS = 100;           // kandidat koin teratas menurut volume
@@ -75,7 +75,7 @@ async function run() {
   const tickers = await src.tickers24();
   const ok = await src.symbols();
   const coins = tickers
-    .filter((t) => t.symbol.endsWith("USDT") && ok.has(t.symbol) && !CONFIG.EXCLUDE.includes(t.symbol)
+    .filter((t) => isCryptoSymbol(t.symbol) && ok.has(t.symbol)
       && !/USD/.test(t.symbol.replace(/USDT$/, "")) && !["PAXGUSDT", "WBTCUSDT", "WBETHUSDT", "XAUUSDT"].includes(t.symbol) && t.volume > 0)
     .sort((a, b) => b.volume - a.volume).slice(0, N_COINS).map((t) => t.symbol);
   const to = Date.now(), from = to - DAYS * D;

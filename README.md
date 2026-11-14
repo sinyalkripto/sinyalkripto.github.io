@@ -1,6 +1,6 @@
 # Sinyal Kripto
 
-Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 20 koin teratas
+Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 30 koin teratas
 Binance Futures.
 
 ## Strategi: pullback searah tren
@@ -29,6 +29,20 @@ setelah biaya. Hasil masa lalu bukan jaminan hasil berikutnya.
 Catatan: reward:risk 0,5 ini sengaja di bawah aturan minimal 1 di skill trader (trader-risk). Dengan
 reward:risk 1, win rate terbaik di data yang sama sekitar 57% (PF 1,10), jadi dipilih TP lebih dekat
 supaya win rate di atas 60%.
+
+### Riset jumlah koin (180 hari sampai 14 Nov 2026, 1 jam, data Binance Spot, `riset.html`)
+
+| Koin teratas | Sinyal/hari | Hari ada sinyal | Win rate | Profit factor | PF per 1/3 periode |
+|---|---|---|---|---|---|
+| 20 | 1,9 | 71% | 70,3% | 1,04 | 1,04 / 1,25 / 0,93 |
+| 30 | 2,9 | 82% | 69,7% | 0,96 | 1,17 / 0,99 / 0,80 |
+| 40 | 4,0 | 88% | 69,9% | 0,97 | 1,06 / 1,06 / 0,83 |
+| 100 | 10,3 | 100% | 69,5% | 1,00 | 1,21 / 0,97 / 0,88 |
+
+Menambah koin menambah sinyal dengan win rate tetap sekitar 70%, tapi profit factor di sekitar 1
+(impas setelah biaya) dan sepertiga terakhir di bawah 1 untuk semua kelompok. Memilih koin dari hasil
+paruh pertama tidak membantu di paruh kedua (PF 0,98 vs 0,98), jadi koin dipilih menurut volume saja.
+Situs memantau 30 koin kripto teratas (token saham seperti NVDAB/TSLAB tidak ikut).
 
 ## Di situs
 

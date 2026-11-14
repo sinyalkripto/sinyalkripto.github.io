@@ -1,6 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js?v=8";
+} from "./engine.js?v=9";
 import { startGlobe } from "./globe.js?v=3";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
