@@ -1,6 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js?v=10";
+} from "./engine.js?v=11";
 import { startGlobe } from "./globe.js?v=3";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
@@ -476,10 +476,10 @@ function renderPositions() {
     return `<div class="pos">
       <div class="pos-top">
         <div class="pos-id">${logo(t.sym)}<b style="font-size:17px">${esc(baseAsset(t.sym))}</b><span class="side ${t.side}">${t.side}</span><span class="muted" style="font-size:13px">${TF_LABEL[t.tf]}</span></div>
-        <div class="pos-right"><span style="font-size:17px">${fmtPrice(p)}</span><span class="pnl ${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</span><a class="trade" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>
+        <div class="pos-right"><span style="font-size:17px">${fmtPrice(p)}</span><span class="pnl ${pnl >= 0 ? "up" : "down"}" title="Untung/rugi kalau masuk di harga sinyal, dihitung dari harga sekarang">${fmtPct(pnl)} <span class="muted" style="font-size:12px;font-weight:400">dari harga masuk</span></span><a class="trade" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>
       </div>
       <div class="bar"><i style="width:${prog.w * 100}%;background:${prog.c}"></i></div>
-      <div class="pos-meta"><span>Masuk ${fmtTime(t.entryTime)} WIB di ${fmtPrice(t.entry)} · SL ${fmtPrice(t.sl)} · TP ${fmtPrice(t.tp)}</span><span class="tag ${st.cls}">${st.text}</span></div>
+      <div class="pos-meta"><span>Masuk ${fmtTime(t.entryTime)} WIB di ${fmtPrice(t.entry)} (harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)}) · SL ${fmtPrice(t.sl)} (${fmtPct((t.sl / t.entry - 1) * 100)}) · TP ${fmtPrice(t.tp)} (${fmtPct((t.tp / t.entry - 1) * 100)})</span><span class="tag ${st.cls}">${st.text}</span></div>
       <div class="pos-meta"><span>${estTxt}</span><span>${prog.n}</span></div>
     </div>`;
   }).join("") + (open.length > 10 ? `<p><button class="btn ghost" style="color:var(--accent);background:var(--bg2);min-height:40px;font-size:14px" id="more-pos" type="button">${S.showAllPos ? "Tampilkan lebih sedikit" : `Lihat semua ${open.length} posisi`}</button></p>` : "");
