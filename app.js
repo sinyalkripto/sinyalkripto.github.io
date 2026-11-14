@@ -1,6 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js?v=5";
+} from "./engine.js?v=6";
 import { startGlobe } from "./globe.js?v=3";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
@@ -9,10 +9,16 @@ const TFS = CONFIG.TIMEFRAMES;
 // 1s dirakit dari transaksi Futures, hanya untuk koin yang sedang dibuka (dihitung ulang tiap 2 detik).
 const SOLO_TF = "1s";
 const TF_LABEL = { "1s": "1dt", "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1j", "4h": "4j" };
+// Timeframe utama: satu-satunya yang untung bersih di uji historis (lihat README).
+const MAIN_TF = "1h";
+// Di bawah 1 jam biaya terlalu besar dibanding target; hasil uji belum untung bersih.
+const EXPERIMENTAL = new Set(["1s", "1m", "3m", "5m", "15m", "30m"]);
+const tfNote = (tf) => (tf === MAIN_TF ? "utama" : EXPERIMENTAL.has(tf) ? "eksperimen" : "");
+const tfTag = (tf) => (tf === MAIN_TF ? ' <span class="tag ok" style="font-size:11px;padding:1px 6px">utama</span>' : EXPERIMENTAL.has(tf) ? ' <span class="tag warn" style="font-size:11px;padding:1px 6px">eksperimen</span>' : "");
 const S = {
   symbols: [], info: {}, data: {}, res: {}, prices: {}, prevPrices: {},
   sel: "BTCUSDT", tf: "1h", ind: { ema: true, bb: false, vol: true, rsi: true, macd: true },
-  sigTf: "all", sigSide: "all", showAllPos: false, loadErr: {},
+  sigTf: MAIN_TF, sigSide: "all", showAllPos: false, loadErr: {},
 };
 
 // ---------- Format ----------
@@ -144,8 +150,54 @@ function scheduleRender() {
   renderQueued = true;
   setTimeout(() => { renderQueued = false; renderAll(); }, 400);
 }
+// ---------- Hasil live (forward test) ----------
+// Sinyal yang muncul SETELAH pelacakan dimulai dicatat di browser ini (localStorage), supaya hasilnya
+// bisa dibandingkan dengan angka backtest. Disimpan per trade, jadi tetap ada walau candle lamanya
+// sudah tidak dimuat lagi.
+const LIVE_KEY = "liveTrades.v1";
+const LIVE = (() => {
+  let v = null;
+  try { v = JSON.parse(localStorage.getItem(LIVE_KEY) || "null"); } catch (e) {}
+  if (!v || !v.start) v = { start: Date.now(), trades: {} };
+  return v;
+})();
+function saveLive() { try { localStorage.setItem(LIVE_KEY, JSON.stringify(LIVE)); } catch (e) {} }
+saveLive();
+function recordLive() {
+  let changed = false;
+  for (const t of allTrades()) {
+    if (t.open || t.entryTime < LIVE.start) continue;
+    const key = `${t.sym}|${t.tf}|${t.side}|${t.entryTime}`;
+    if (LIVE.trades[key]) continue;
+    LIVE.trades[key] = { sym: t.sym, tf: t.tf, side: t.side, entryTime: t.entryTime, result: t.result, ret: t.ret };
+    changed = true;
+  }
+  if (changed) saveLive();
+}
+function renderLive() {
+  recordLive();
+  const list = Object.values(LIVE.trades);
+  const cards = [];
+  for (const tf of TFS) {
+    const ts = list.filter((t) => t.tf === tf);
+    const bt = Object.values(S.res).flatMap((r) => (r[tf] ? sides().flatMap((sd) => r[tf].sides[sd].closed) : []));
+    if (!ts.length && tf !== MAIN_TF) continue;
+    const st = (arr) => {
+      const n = arr.length, w = arr.filter((t) => t.ret > 0).length;
+      const g = arr.filter((t) => t.ret > 0).reduce((a, t) => a + t.ret, 0), l = -arr.filter((t) => t.ret <= 0).reduce((a, t) => a + t.ret, 0);
+      return { n, win: n ? w / n * 100 : NaN, pf: l ? g / l : g ? Infinity : NaN };
+    };
+    const lv = st(ts), b = st(bt);
+    const f = (x) => (x.n ? `win ${nf(0).format(x.win)}% · PF ${x.pf === Infinity ? "∞" : Number.isFinite(x.pf) ? nf(2).format(x.pf) : "–"}` : "–");
+    cards.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]}${tfTag(tf)}</span><b>${lv.n ? f(lv) : "Belum ada"}</b><span class="muted" style="font-size:13px">${lv.n} trade live · backtest: ${f(b)}</span></div>`);
+  }
+  $("#live").innerHTML = cards.join("") || `<p class="empty">Belum ada sinyal yang selesai sejak pelacakan dimulai.</p>`;
+  $("#live-sub").textContent = `Sinyal yang muncul sejak ${fmtTime(LIVE.start)} WIB dan sudah selesai (kena TP, SL, atau batas waktu), dicatat di browser ini saja. Biarkan situs terbuka atau buka lagi tiap hari selama 1–2 minggu, lalu bandingkan dengan angka backtest. Kalau jauh di bawah backtest, strategi perlu dicek ulang.`;
+}
+$("#live-reset")?.addEventListener("click", () => { LIVE.start = Date.now(); LIVE.trades = {}; saveLive(); renderLive(); });
+
 function renderAll() {
-  renderKpis(); renderPositions(); renderSignals(); renderBacktest();
+  renderKpis(); renderPositions(); renderSignals(); renderBacktest(); renderLive();
   if (S.res[S.sel]?.[S.tf]) { renderChart(); renderAnalysis(); } else renderTfDirections();
 }
 
@@ -429,7 +481,7 @@ function segButtons(el, items, current, onPick) {
 }
 
 function renderSignals() {
-  segButtons($("#sig-tf"), [["all", "Semua"], ...TFS.map((t) => [t, TF_LABEL[t]])], S.sigTf, (v) => { S.sigTf = v; renderSignals(); });
+  segButtons($("#sig-tf"), [["all", "Semua"], ...TFS.map((t) => [t, TF_LABEL[t] + (EXPERIMENTAL.has(t) ? "*" : t === MAIN_TF ? " ★" : "")])], S.sigTf, (v) => { S.sigTf = v; renderSignals(); });
   segButtons($("#sig-side"), [["all", "Long & short"], ["LONG", "Long"], ["SHORT", "Short"]], S.sigSide, (v) => { S.sigSide = v; renderSignals(); });
   const now = Date.now();
   const rows = allTrades().filter((t) => now - t.entryTime < 7 * 864e5 && (S.sigTf === "all" || t.tf === S.sigTf) && (S.sigSide === "all" || t.side === S.sigSide)).slice(0, 40);
@@ -443,6 +495,7 @@ function renderSignals() {
       if (e) est = `± ${fmtTime(e.at)}`;
     } else if (t.result === "TP") status = `<span class="up">▲ Kena TP ${fmtTime(t.hitFrom)}–${fmtClock(t.hitTo)} · ${fmtPct(t.ret * 100, 1)}</span>`;
     else if (t.result === "SL") status = `<span class="down">▼ Kena SL ${fmtTime(t.hitFrom)}–${fmtClock(t.hitTo)} · ${fmtPct(t.ret * 100, 1)}</span>`;
+    else if (t.result === "WAKTU") status = `<span class="${t.ret >= 0 ? "up" : "down"}">Ditutup batas waktu ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`;
     else status = "Ditutup";
     return `<tr>
       <td>${fmtTime(t.entryTime)}</td>
@@ -461,12 +514,16 @@ function renderBacktest() {
     const rs = Object.values(S.res).map((r) => r[tf]?.sides[side]).filter((x) => x && x.trades);
     if (!rs.length) continue;
     const avg = rs.reduce((a, x) => a + x.return, 0) / rs.length;
-    const win = rs.reduce((a, x) => a + x.winRate, 0) / rs.length;
+    // Win rate dan profit factor dihitung dari gabungan semua trade (bukan rata-rata per koin).
+    const n = rs.reduce((a, x) => a + x.closed.length, 0);
+    const wins = rs.reduce((a, x) => a + x.closed.filter((t) => t.ret > 0).length, 0);
+    const gain = rs.reduce((a, x) => a + x.gain, 0), loss = rs.reduce((a, x) => a + x.loss, 0);
+    const win = n ? wins / n * 100 : NaN, pf = loss ? gain / loss : gain ? Infinity : NaN;
     const tm = timingFor("", tf, side);
-    html.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]} · ${side === "long" ? "Long" : "Short"}</span><b class="${avg >= 0 ? "up" : "down"}">${fmtPct(avg, 1)}</b><span class="muted" style="font-size:13px">${rs.filter((x) => x.return > 0).length}/${rs.length} koin untung · win ${nf(0).format(win)}%${tm.samples ? ` · TP ± ${fmtDur(tm.median)}` : ""}</span></div>`);
+    html.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]} · ${side === "long" ? "Long" : "Short"}${tfTag(tf)}</span><b class="${avg >= 0 ? "up" : "down"}">${fmtPct(avg, 1)}</b><span class="muted" style="font-size:13px">Win ${Number.isNaN(win) ? "–" : nf(0).format(win) + "%"} dari ${n} trade · PF ${pf === Infinity ? "∞ (belum ada rugi)" : Number.isFinite(pf) ? nf(2).format(pf) : "–"}</span><span class="muted" style="font-size:13px">${rs.filter((x) => x.return > 0).length}/${rs.length} koin untung${tm.samples ? ` · TP ± ${fmtDur(tm.median)}` : ""}</span></div>`);
   }
   $("#bt").innerHTML = html.join("") || `<p class="empty">Memuat…</p>`;
-  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1m ≈ 17 jam, 5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi.";
+  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1m ≈ 17 jam, 5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi. PF (profit factor) = total untung dibagi total rugi; di atas 1 berarti untung bersih. Win rate tinggi belum tentu untung, karena TP sengaja lebih dekat dari SL. ★ 1j = timeframe utama (satu-satunya yang untung bersih di uji 6 bulan); * eksperimen = di uji historis belum untung bersih setelah biaya.";
 }
 
 // ---------- Analisis teknikal: arah LONG/SHORT per timeframe ----------
@@ -508,22 +565,33 @@ function tfDirection(sym, tf) {
   return d;
 }
 
+/** Win rate sinyal bot (TP/SL) di koin + timeframe ini, dari backtest candle yang dimuat. */
+function botWin(sym, tf) {
+  const r = S.res[sym]?.[tf];
+  if (!r) return "";
+  const closed = sides().flatMap((side) => r.sides[side].closed);
+  if (!closed.length) return `<span class="muted" style="font-size:12px">Sinyal bot: belum ada trade</span>`;
+  const w = closed.filter((t) => t.ret > 0).length / closed.length * 100;
+  return `<span class="muted" style="font-size:12px" title="Trade sinyal bot (TP/SL) yang ditutup untung di candle yang dimuat">Win bot ${nf(0).format(w)}% (${closed.length})</span>`;
+}
+
 function renderTfDirections() {
   const cards = TFS.map((tf) => {
     const d = tfDirection(S.sel, tf);
     const cur = tf === S.tf ? " sel" : "";
     if (!d) {
       const why = tf === SOLO_TF && S.tf !== SOLO_TF ? "Klik untuk memuat" : tf === SOLO_TF ? "Mengumpulkan transaksi…" : "Memuat…";
-      return `<button type="button" class="tf-dir${cur}" data-tf="${tf}"><span class="tf-name">${TF_LABEL[tf]}</span><span class="muted" style="font-size:13px">${why}</span></button>`;
+      return `<button type="button" class="tf-dir${cur}" data-tf="${tf}"><span class="tf-name">${TF_LABEL[tf]}${tfTag(tf)}</span><span class="muted" style="font-size:13px">${why}</span></button>`;
     }
     const { rt, acc } = d, all = [...rt.mas, ...rt.osc];
     const nL = all.filter((x) => x.vote > 0).length, nS = all.filter((x) => x.vote < 0).length;
     const side = rt.dir > 0 ? "LONG" : "SHORT";
     return `<button type="button" class="tf-dir${cur}" data-tf="${tf}">
-      <span class="tf-name">${TF_LABEL[tf]}</span>
+      <span class="tf-name">${TF_LABEL[tf]}${tfTag(tf)}</span>
       <span class="side ${side}" style="font-size:14px">${dirWord(rt.sAll, rt.dir)}</span>
       <span class="muted" style="font-size:12px">${nL} long · ${nS} short · ${all.length - nL - nS} netral</span>
       <span class="muted" style="font-size:12px">${Number.isNaN(acc.acc) ? "Akurasi –" : `Akurasi ${nf(0).format(acc.acc)}% <span title="Dari ${acc.total} candle terakhir: arah rating dibanding harga ${AHEAD} candle sesudahnya">(${acc.total})</span>`}</span>
+      ${botWin(S.sel, tf)}
     </button>`;
   });
   $("#tf-dirs").innerHTML = cards.join("");
@@ -615,7 +683,7 @@ function styleCharts() {
 const pts = (rows, vals) => rows.map((r, i) => (Number.isNaN(vals[i]) || vals[i] == null ? { time: ts(r.time) } : { time: ts(r.time), value: vals[i] }));
 
 function renderChartControls() {
-  segButtons($("#tf-seg"), TFS.map((t) => [t, TF_LABEL[t]]), S.tf, (v) => selectCoin(S.sel, v));
+  segButtons($("#tf-seg"), TFS.map((t) => [t, TF_LABEL[t] + (EXPERIMENTAL.has(t) ? "*" : t === MAIN_TF ? " ★" : "")]), S.tf, (v) => selectCoin(S.sel, v));
   const inds = [["ema", "EMA"], ["bb", "Bollinger"], ["vol", "Volume"], ["rsi", "RSI"], ["macd", "MACD"]];
   $("#ind-seg").innerHTML = inds.map(([k, l]) => `<button type="button" class="${S.ind[k] ? "on" : ""}" data-k="${k}" aria-pressed="${S.ind[k]}">${l}</button>`).join("");
   $("#ind-seg").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { S.ind[b.dataset.k] = !S.ind[b.dataset.k]; renderChart(); }));

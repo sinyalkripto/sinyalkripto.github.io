@@ -126,6 +126,13 @@
     <div class="table-wrap reveal"><table class="sig"><thead><tr><th>Masuk (WIB)</th><th>Koin</th><th>Arah</th><th class="r">Harga</th><th class="r">Stop loss</th><th class="r">Take profit</th><th>Status</th><th>Perkiraan TP</th><th></th></tr></thead><tbody id="signals"></tbody></table></div>
   </section>
 
+  <section id="live-test">
+    <h2 class="reveal">Hasil live</h2>
+    <p class="section-sub reveal" id="live-sub">Sinyal yang muncul sejak pelacakan dimulai, dicatat di browser ini.</p>
+    <div class="bt reveal" id="live"></div>
+    <p class="reveal"><button class="btn ghost" style="min-height:36px;font-size:13px" id="live-reset" type="button">Mulai ulang pelacakan</button></p>
+  </section>
+
   <section id="backtest">
     <h2 class="reveal">Hasil uji historis</h2>
     <p class="section-sub reveal" id="bt-sub">Rata-rata semua koin, tanpa leverage, sudah termasuk biaya 0,05% per transaksi.</p>
@@ -134,10 +141,10 @@
 
   <footer>
     <div class="disclaimer">Sinyal otomatis, bukan nasihat keuangan. Trading futures berisiko tinggi, dan leverage bisa membuat Anda kehilangan seluruh modal. Perkiraan jam take profit dihitung dari data historis dan bukan jaminan.</div>
-    Data harga dari API publik Binance Futures, diambil langsung oleh browser Anda. Strategi: persilangan EMA 20/50 dengan konfirmasi RSI 14 dan filter tren 4 jam; stop loss 1,5 ATR, take profit 3 ATR. Situs ini tidak terafiliasi dengan Binance atau TradingView. Logo koin dari TradingView.
+    Data harga dari API publik Binance Futures, diambil langsung oleh browser Anda. Strategi: pullback searah tren. Masuk saat RSI 14 memantul dari koreksi (naik lewat 40 untuk long, turun lewat 60 untuk short) ketika tren 4 jam, EMA 20/50, dan EMA 200 searah dan ADX 14 di atas 20; take profit 1 ATR, stop loss 2 ATR, posisi ditutup paksa setelah 48 candle. Win rate tinggi karena TP lebih dekat dari SL, jadi perhatikan juga profit factor. Situs ini tidak terafiliasi dengan Binance atau TradingView. Logo koin dari TradingView.
   </footer>
 </main>
 
-<script type="module" src="app.js?v=5"></script>
+<script type="module" src="app.js?v=7"></script>
 </body>
 </html>
