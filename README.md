@@ -26,6 +26,10 @@ Win rate tinggi terutama karena TP (1 ATR) lebih dekat dari SL (2 ATR): satu kal
 kira-kira dua kali TP, jadi lihat juga profit factor. Timeframe di bawah 1 jam belum untung bersih
 setelah biaya. Hasil masa lalu bukan jaminan hasil berikutnya.
 
+Catatan: reward:risk 0,5 ini sengaja di bawah aturan minimal 1 di skill trader (trader-risk). Dengan
+reward:risk 1, win rate terbaik di data yang sama sekitar 57% (PF 1,10), jadi dipilih TP lebih dekat
+supaya win rate di atas 60%.
+
 Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV dari crypto-signal-bot/data).
 
 ## File
