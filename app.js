@@ -1,7 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
 } from "./engine.js?v=11";
-import { startGlobe } from "./globe.js?v=3";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
 const $ = (s) => document.querySelector(s);
@@ -74,7 +73,7 @@ function applyTheme() {
   const t = mode === "auto" ? (h >= 6 && h < 18 ? "light" : "dark") : mode;
   if (t !== currentTheme()) {
     document.documentElement.setAttribute("data-theme", t);
-    document.querySelector('meta[name="theme-color"]').content = t === "dark" ? "#000000" : "#FFFFFF";
+    document.querySelector('meta[name="theme-color"]').content = t === "dark" ? "#0B1020" : "#F4F6FB";
     styleCharts();
     renderAnalysis();
   }
@@ -110,12 +109,33 @@ setTimeout(hideSplash, 5000);
 $("#skip").addEventListener("click", hideSplash);
 addEventListener("keydown", (e) => { if (!splashDone && (e.key === "Enter" || e.key === "Escape")) hideSplash(); });
 
-addEventListener("scroll", () => $("#nav").classList.toggle("solid", scrollY > 40), { passive: true });
 const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("shown"); io.unobserve(e.target); } }), { rootMargin: "0px 0px -8% 0px" });
 const observeReveals = (root = document) => root.querySelectorAll(".reveal:not(.shown)").forEach((el) => io.observe(el));
 observeReveals();
 
-startGlobe($("#globe"), currentTheme);
+// ---------- Tab / halaman ----------
+const VIEWS = ["sinyal", "posisi", "pasar", "performa", "panduan"];
+const OLD_HASH = { grafik: "pasar", analisis: "pasar", coins: "pasar", "live-test": "performa", backtest: "performa" };
+function route() {
+  const h = location.hash.replace(/^#\/?/, "");
+  const v = VIEWS.includes(h) ? h : OLD_HASH[h] || "sinyal";
+  document.querySelectorAll(".view").forEach((el) => {
+    const on = el.dataset.view === v;
+    el.classList.toggle("on", on);
+    if (on) el.querySelectorAll(".reveal").forEach((r) => r.classList.add("shown"));
+  });
+  document.querySelectorAll("[data-tab]").forEach((a) => {
+    a.classList.toggle("on", a.dataset.tab === v);
+    if (a.dataset.tab === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  // Grafik dibuat saat tab tersembunyi; gambar ulang begitu tab Pasar dibuka.
+  if (v === "pasar") setTimeout(() => { if (typeof charts !== "undefined" && charts) { renderChart(true); } }, 60);
+  if (!VIEWS.includes(h) && OLD_HASH[h]) setTimeout(() => document.getElementById(h)?.scrollIntoView(), 50);
+  else scrollTo(0, 0);
+  return v;
+}
+addEventListener("hashchange", route);
+route();
 applyTheme();
 setInterval(() => { $("#clock").textContent = `Live · ${fmtClock(Date.now())}:${String(new Date().getSeconds()).padStart(2, "0")} WIB`; renderTimebar(); }, 1000);
 
@@ -342,6 +362,7 @@ function updateLive() {
   if (S.prices.BTCUSDT) $("#hs-btc").textContent = "$" + fmtPrice(S.prices.BTCUSDT);
   updateChartLive();
   renderPositions();
+  renderActive();
 }
 
 // ---------- Kartu koin ----------
@@ -457,41 +478,111 @@ function tpEstimate(t) {
   };
 }
 
+// Kartu sinyal/posisi: baris Entry / SL / TP / P/L + bar posisi harga.
+function card(t, mode) {
+  const p = S.prices[t.sym] ?? t.entry;
+  const long = t.side === "LONG";
+  const pnl = (long ? p / t.entry - 1 : 1 - p / t.entry) * 100;
+  const toTp = Math.max(0, Math.min(1, (p - t.entry) / (t.tp - t.entry)));
+  const toSl = Math.max(0, Math.min(1, (p - t.entry) / (t.sl - t.entry)));
+  // SL di kiri, harga masuk di tengah, TP di kanan (berlaku untuk long maupun short).
+  const mark = pnl >= 0 ? 50 + toTp * 50 : 50 - toSl * 50;
+  const near = pnl >= 0 ? `TP · ${Math.round(toTp * 100)}%` : "TP";
+  const nearSl = pnl < 0 ? `SL · ${Math.round(toSl * 100)}%` : "SL";
+  const hit = liveHit(t);
+  const st = hit ? { cls: hit === "TP" ? "ok" : "bad", text: hit === "TP" ? `Kena TP sekitar ${fmtClock(Date.now())} WIB` : `Kena SL sekitar ${fmtClock(Date.now())} WIB` } : entryStatus(t, t.tf, t.atr ?? 0, p);
+  const est = tpEstimate(t);
+  const estTxt = est ? `Perkiraan TP ± ${fmtTime(est.at)} WIB${est.overdue ? ' <span class="tag warn">lewat perkiraan</span>' : ""}` : "";
+  const id = `${t.sym}|${t.tf}|${t.side}|${t.entryTime}`;
+  const actions = mode === "signal"
+    ? `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button>${st.cls === "bad" ? `<span class="btn-s off">Jangan dikejar</span>` : `<a class="btn-s" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang ↗</a>`}</div>`
+    : `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button><a class="btn-s ghost" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>`;
+  const short = hit ? (hit === "TP" ? "Kena TP" : "Kena SL") : st.cls === "ok" ? "Berlaku" : st.cls === "warn" ? "Lewat jam" : "Kedaluwarsa";
+  return `<div class="tile">
+      <div class="tile-head">${logo(t.sym)}<div class="tile-id"><span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span></span><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]} · ${fmtClock(t.entryTime)} WIB</span></div><span class="tag ${st.cls}" title="${esc(st.text)}">${short}</span></div>
+      <div class="tile-pl ${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</div>
+      <div class="muted pg-sub">harga ${fmtPrice(p)}</div>
+      <div class="pbar" role="img" aria-label="Harga sekarang ${pnl >= 0 ? `${Math.round(toTp * 100)}% menuju take profit` : `${Math.round(toSl * 100)}% menuju stop loss`}">
+        <div class="pbar-track"><i style="left:${mark.toFixed(1)}%"></i></div>
+        <div class="pbar-lbl"><span>${nearSl}</span><span>Entry</span><span>${near}</span></div>
+      </div>
+      <div class="tile-lv">
+        <div><span class="pg-k">Entry</span><b>${fmtPrice(t.entry)}</b></div>
+        <div><span class="pg-k">SL ${fmtPct((t.sl / t.entry - 1) * 100, 1)}</span><b class="down">${fmtPrice(t.sl)}</b></div>
+        <div><span class="pg-k">TP ${fmtPct((t.tp / t.entry - 1) * 100, 1)}</span><b class="up">${fmtPrice(t.tp)}</b></div>
+      </div>
+      <div class="tile-meta muted">${st.text}${estTxt ? `<br>${estTxt}` : ""}<br>Masuk = harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)} WIB</div>
+      ${actions}
+    </div>`;
+}
+
 let lastPosHtml = "";
 function renderPositions() {
   const open = allTrades().filter((t) => t.open);
-  if (!open.length) { $("#positions").innerHTML = `<p class="empty">${Object.keys(S.res).length ? "Belum ada posisi terbuka." : "Memuat…"}</p>`; return; }
+  if (!open.length) { lastPosHtml = ""; $("#positions").innerHTML = `<p class="empty">${Object.keys(S.res).length ? "Belum ada posisi terbuka." : "Memuat…"}</p>`; return; }
   const list = S.showAllPos ? open : open.slice(0, 10);
-  const html = list.map((t) => {
-    const p = S.prices[t.sym] ?? t.entry;
-    const long = t.side === "LONG";
-    const pnl = (long ? p / t.entry - 1 : 1 - p / t.entry) * 100;
-    const toTp = Math.max(0, Math.min(1, (p - t.entry) / (t.tp - t.entry)));
-    const toSl = Math.max(0, Math.min(1, (p - t.entry) / (t.sl - t.entry)));
-    const prog = pnl >= 0 ? { w: toTp, c: "var(--up)", n: `${Math.round(toTp * 100)}% menuju take profit` } : { w: toSl, c: "var(--down)", n: `${Math.round(toSl * 100)}% menuju stop loss` };
-    const hit = liveHit(t);
-    const st = hit ? { cls: hit === "TP" ? "ok" : "bad", text: hit === "TP" ? `Kena TP sekitar ${fmtClock(Date.now())} WIB` : `Kena SL sekitar ${fmtClock(Date.now())} WIB` } : entryStatus(t, t.tf, t.atr ?? 0, p);
-    const est = tpEstimate(t);
-    const estTxt = est ? `Perkiraan kena TP ± ${fmtTime(est.at)} WIB (biasanya ${fmtClock(est.lo)}–${fmtClock(est.hi)}) · ${fmtDur(est.tm.median)} setelah masuk${est.overdue ? ' · <span class="tag warn">lewat perkiraan waktu</span>' : ""}` : "Perkiraan TP belum tersedia";
-    return `<div class="pos">
-      <div class="pos-top">
-        <div class="pos-id">${logo(t.sym)}<b style="font-size:17px">${esc(baseAsset(t.sym))}</b><span class="side ${t.side}">${t.side}</span><span class="muted" style="font-size:13px">${TF_LABEL[t.tf]}</span></div>
-        <div class="pos-right"><span style="font-size:17px">${fmtPrice(p)}</span><span class="pnl ${pnl >= 0 ? "up" : "down"}" title="Untung/rugi kalau masuk di harga sinyal, dihitung dari harga sekarang">${fmtPct(pnl)} <span class="muted" style="font-size:12px;font-weight:400">dari harga masuk</span></span><a class="trade" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>
-      </div>
-      <div class="bar"><i style="width:${prog.w * 100}%;background:${prog.c}"></i></div>
-      <div class="pos-meta"><span>Masuk ${fmtTime(t.entryTime)} WIB di ${fmtPrice(t.entry)} (harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)}) · SL ${fmtPrice(t.sl)} (${fmtPct((t.sl / t.entry - 1) * 100)}) · TP ${fmtPrice(t.tp)} (${fmtPct((t.tp / t.entry - 1) * 100)})</span><span class="tag ${st.cls}">${st.text}</span></div>
-      <div class="pos-meta"><span>${estTxt}</span><span>${prog.n}</span></div>
-    </div>`;
-  }).join("") + (open.length > 10 ? `<p><button class="btn ghost" style="color:var(--accent);background:var(--bg2);min-height:40px;font-size:14px" id="more-pos" type="button">${S.showAllPos ? "Tampilkan lebih sedikit" : `Lihat semua ${open.length} posisi`}</button></p>` : "");
+  const html = list.map((t) => card(t, "position")).join("") + (open.length > 10 ? `<p class="more"><button class="btn-s ghost" id="more-pos" type="button">${S.showAllPos ? "Tampilkan lebih sedikit" : `Lihat semua ${open.length} posisi`}</button></p>` : "");
   if (html === lastPosHtml) return;
   lastPosHtml = html;
   $("#positions").innerHTML = html;
   $("#more-pos")?.addEventListener("click", () => { S.showAllPos = !S.showAllPos; renderPositions(); });
 }
 
+// ---------- Kalkulator posisi ----------
+let calcTrade = null;
+try {
+  const c = JSON.parse(localStorage.getItem("calc.v1") || "null");
+  if (c) { $("#calc-cap").value = c.cap; $("#calc-risk").value = c.risk; }
+} catch (e) {}
+function renderCalc() {
+  const t = calcTrade;
+  if (!t) return;
+  const cap = Math.max(0, +$("#calc-cap").value || 0);
+  const riskPct = Math.max(0, +$("#calc-risk").value || 0);
+  try { localStorage.setItem("calc.v1", JSON.stringify({ cap, risk: riskPct })); } catch (e) {}
+  const slD = Math.abs(t.sl - t.entry) / t.entry, tpD = Math.abs(t.tp - t.entry) / t.entry;
+  const risk = cap * riskPct / 100;
+  const size = slD ? risk / slD : 0;
+  const lev = cap ? Math.max(1, Math.ceil(size / cap)) : 1;
+  const fee = size * 0.0005 * 2;
+  const n = (x) => nf(x >= 100 ? 0 : 2).format(x);
+  $("#calc-title").textContent = `Kalkulator posisi · ${baseAsset(t.sym)} ${t.side} ${TF_LABEL[t.tf]}`;
+  $("#calc-sub").textContent = `Entry ${fmtPrice(t.entry)} · SL ${fmtPrice(t.sl)} (${fmtPct(slD * 100 * (t.sl > t.entry ? 1 : -1))}) · TP ${fmtPrice(t.tp)} (${fmtPct(tpD * 100 * (t.tp > t.entry ? 1 : -1))})`;
+  $("#calc-res").innerHTML = `
+    <div><small>Ukuran posisi</small><b>${n(size)} USDT</b></div>
+    <div><small>Leverage minimal</small><b>${lev}×</b></div>
+    <div><small>Rugi kalau kena SL</small><b class="down">−${n(risk + fee)} USDT</b></div>
+    <div><small>Untung kalau kena TP</small><b class="up">+${n(Math.max(0, size * tpD - fee))} USDT</b></div>`;
+  $("#calc-note").textContent = `Dihitung dari jarak SL sinyal (${nf(1).format(slD * 100)}%), sudah termasuk perkiraan biaya 0,05% per transaksi (±${n(fee)} USDT). ${lev > 1 ? `Posisi ini lebih besar dari modal, jadi butuh leverage minimal ${lev}×. ` : ""}Leverage tinggi tidak menambah peluang, hanya memperbesar rugi kalau ukuran posisinya ikut dinaikkan.`;
+}
+["#calc-cap", "#calc-risk"].forEach((q) => $(q).addEventListener("input", renderCalc));
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-calc]");
+  if (!b) return;
+  const [sym, tf, side, at] = b.dataset.calc.split("|");
+  calcTrade = allTrades().find((t) => t.sym === sym && t.tf === tf && t.side === side && t.entryTime === +at);
+  if (!calcTrade) return;
+  renderCalc();
+  $("#calc").showModal();
+});
+$("#calc").addEventListener("click", (e) => { if (e.target === $("#calc")) $("#calc").close(); });
+
 function segButtons(el, items, current, onPick) {
   el.innerHTML = items.map(([v, l]) => `<button type="button" class="${v === current ? "on" : ""}" data-v="${v}">${l}</button>`).join("");
   el.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => onPick(b.dataset.v)));
+}
+
+let lastSigHtml = "";
+function renderActive() {
+  const pick = (t) => (S.sigTf === "all" || t.tf === S.sigTf) && (S.sigSide === "all" || t.side === S.sigSide);
+  const all = allTrades().filter((t) => t.open && !liveHit(t));
+  const active = all.filter(pick);
+  $("#hs-act").textContent = Object.keys(S.res).length ? all.length : "–";
+  const html = active.length ? active.map((t) => card(t, "signal")).join("")
+    : `<p class="empty">${!Object.keys(S.res).length ? "Memuat…" : all.length ? `Belum ada sinyal untuk pilihan ini, tapi ada ${all.length} sinyal aktif di pilihan lain. Pilih <b>Semua</b> dan <b>Long & short</b> untuk melihatnya.` : "Belum ada sinyal baru. Sinyal muncul saat candle tutup, halaman ini memperbarui sendiri."}</p>`;
+  if (html === lastSigHtml) return;
+  lastSigHtml = html;
+  $("#signals").innerHTML = html;
 }
 
 function renderSignals() {
@@ -504,22 +595,7 @@ function renderSignals() {
 
   // Sinyal aktif: posisi yang belum kena TP/SL (juga belum kena di candle yang sedang berjalan).
   const active = trades.filter((t) => t.open && !liveHit(t));
-  $("#signals").innerHTML = active.length ? active.map((t) => {
-    const s = entryStatus(t, t.tf, t.atr ?? 0, S.prices[t.sym] ?? t.entry);
-    const e = tpEstimate(t);
-    // Tombol pasang posisi hanya selama sinyal masih layak dimasuki.
-    const btn = s.cls === "bad"
-      ? `<span class="muted" style="font-size:12px">Jangan dikejar</span>`
-      : `<a class="trade" style="min-height:30px;font-size:12px;padding:0 12px" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang posisi ↗</a>`;
-    return `<tr>
-      <td>${fmtTime(t.entryTime)}</td><td>${coin(t)}</td>
-      <td><span class="side ${t.side}">${t.side}</span></td>
-      <td class="r">${fmtPrice(t.entry)}</td><td class="r muted">${fmtPrice(t.sl)}</td><td class="r muted">${fmtPrice(t.tp)}</td>
-      <td><span class="tag ${s.cls}">${s.cls === "ok" ? "Masih berlaku" : s.cls === "warn" ? "Lewat jam masuk" : "Kedaluwarsa"}</span></td>
-      <td class="muted">${e ? `± ${fmtTime(e.at)}` : "–"}</td>
-      <td class="r">${btn}</td>
-    </tr>`;
-  }).join("") : `<tr><td colspan="9" class="empty">Belum ada sinyal baru untuk pilihan ini. Sinyal muncul saat candle tutup, halaman ini memperbarui sendiri.</td></tr>`;
+  renderActive();
 
   renderWhy(trades, active.length);
 
