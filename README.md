@@ -1,4 +1,4 @@
-# Sinyal Kripto
+# Titik Masuk
 
 Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 40 koin teratas
 Binance Futures.

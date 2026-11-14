@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sinyal Kripto: Baca pasar. Sebelum bergerak.</title>
+<title>Titik Masuk: Tahu kapan masuk, tahu kapan keluar</title>
 <meta name="description" content="Sinyal long dan short otomatis untuk 40 koin teratas Binance Futures, lengkap dengan stop loss, take profit, dan analisis teknikal.">
-<meta name="theme-color" content="#000000">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235E5CE6'/%3E%3Cpolyline points='6 22 13 15 18 20 26 11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#F4F6FB">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%233D5AFE'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='white' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2' fill='white'/%3E%3Cpath d='M16 4v5M16 23v5M4 16h5M23 16h5' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <script>
   // Tema dipasang sebelum halaman tampil supaya tidak berkedip.
   (function () {
@@ -17,7 +17,9 @@
     document.documentElement.setAttribute("data-theme", t);
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css?v=8">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -30,8 +32,8 @@
     <i style="height:68px;animation-delay:.65s"></i>
     <svg viewBox="0 0 120 80" preserveAspectRatio="none"><path d="M0 62 L20 54 L36 58 L52 42 L70 34 L86 38 L104 16 L122 6"></path></svg>
   </div>
-  <div class="splash-title">Sinyal Kripto</div>
-  <div class="splash-sub">Baca pasar. Sebelum bergerak.</div>
+  <div class="splash-title">Titik Masuk</div>
+  <div class="splash-sub">Tahu kapan masuk, tahu kapan keluar.</div>
   <div class="splash-bar"><span id="splash-bar"></span></div>
   <div class="splash-status" id="splash-status">Menghubungkan ke Binance…</div>
   <button id="skip" type="button">Lewati</button>
@@ -39,7 +41,7 @@
 
 <nav class="top solid" id="nav">
   <div class="wrap">
-    <a class="brand" href="#/sinyal"><span class="mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 7"></polyline><polyline points="15 7 21 7 21 13"></polyline></svg></span>Sinyal Kripto</a>
+    <a class="brand" href="#/sinyal"><span class="mark"><svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="10" fill="#3D5AFE"></rect><circle cx="16" cy="16" r="6" fill="none" stroke="#fff" stroke-width="2.5"></circle><circle cx="16" cy="16" r="2" fill="#fff"></circle><path d="M16 4v5M16 23v5M4 16h5M23 16h5" stroke="#fff" stroke-width="2.5" stroke-linecap="round"></path></svg></span>Titik Masuk</a>
     <div class="tabs" role="navigation" aria-label="Menu"><a href="#/sinyal" data-tab="sinyal">Sinyal</a><a href="#/posisi" data-tab="posisi">Posisi</a><a href="#/pasar" data-tab="pasar">Pasar</a><a href="#/performa" data-tab="performa">Performa</a><a href="#/panduan" data-tab="panduan">Panduan</a></div>
     <div class="nav-right">
       <span class="clock"><span class="live-dot"></span><span id="clock">Live</span></span>
@@ -83,7 +85,7 @@
   <section id="posisi">
     <h2 class="reveal">Posisi terbuka</h2>
     <p class="section-sub reveal">Semua posisi yang dibuka bot dan belum selesai, termasuk yang sudah lewat jam masuk. Pantau di sini, jangan dikejar kalau sudah kedaluwarsa.</p>
-    <div id="positions"></div>
+    <div class="cards" id="positions"></div>
   </section>
   </div>
   <div class="view" data-view="pasar">
@@ -175,6 +177,6 @@
     <p class="muted" id="calc-note" style="font-size:12px;margin:10px 0 0"></p>
   </form>
 </dialog>
-<script type="module" src="app.js?v=15"></script>
+<script type="module" src="app.js?v=16"></script>
 </body>
 </html>

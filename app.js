@@ -73,7 +73,7 @@ function applyTheme() {
   const t = mode === "auto" ? (h >= 6 && h < 18 ? "light" : "dark") : mode;
   if (t !== currentTheme()) {
     document.documentElement.setAttribute("data-theme", t);
-    document.querySelector('meta[name="theme-color"]').content = t === "dark" ? "#000000" : "#FFFFFF";
+    document.querySelector('meta[name="theme-color"]').content = t === "dark" ? "#0B1020" : "#F4F6FB";
     styleCharts();
     renderAnalysis();
   }
@@ -495,21 +495,24 @@ function card(t, mode) {
   const estTxt = est ? `Perkiraan TP ± ${fmtTime(est.at)} WIB${est.overdue ? ' <span class="tag warn">lewat perkiraan</span>' : ""}` : "";
   const id = `${t.sym}|${t.tf}|${t.side}|${t.entryTime}`;
   const actions = mode === "signal"
-    ? `<span class="pos-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button>${st.cls === "bad" ? `<span class="muted">Jangan dikejar</span>` : `<a class="btn-s" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang ↗</a>`}</span>`
-    : `<a class="pos-link" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a>`;
-  return `<div class="pos${mode === "signal" ? " card" : ""}">
-      <div class="pg">
-        <div class="pg-coin">${logo(t.sym)}<span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span><br><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]}</span></span></div>
-        <div><span class="pg-k">Entry</span><b>${fmtPrice(t.entry)}</b><span class="pg-sub muted">${fmtClock(t.entryTime)} WIB</span></div>
-        <div><span class="pg-k">SL</span><b class="down">${fmtPrice(t.sl)}</b><span class="pg-sub muted">${fmtPct((t.sl / t.entry - 1) * 100)}</span></div>
-        <div><span class="pg-k">TP</span><b class="up">${fmtPrice(t.tp)}</b><span class="pg-sub muted">${fmtPct((t.tp / t.entry - 1) * 100)}</span></div>
-        <div><span class="pg-k">P/L</span><b class="${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</b><span class="pg-sub muted">harga ${fmtPrice(p)}</span></div>
-      </div>
+    ? `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button>${st.cls === "bad" ? `<span class="btn-s off">Jangan dikejar</span>` : `<a class="btn-s" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang ↗</a>`}</div>`
+    : `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button><a class="btn-s ghost" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>`;
+  const short = hit ? (hit === "TP" ? "Kena TP" : "Kena SL") : st.cls === "ok" ? "Berlaku" : st.cls === "warn" ? "Lewat jam" : "Kedaluwarsa";
+  return `<div class="tile">
+      <div class="tile-head">${logo(t.sym)}<div class="tile-id"><span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span></span><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]} · ${fmtClock(t.entryTime)} WIB</span></div><span class="tag ${st.cls}" title="${esc(st.text)}">${short}</span></div>
+      <div class="tile-pl ${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</div>
+      <div class="muted pg-sub">harga ${fmtPrice(p)}</div>
       <div class="pbar" role="img" aria-label="Harga sekarang ${pnl >= 0 ? `${Math.round(toTp * 100)}% menuju take profit` : `${Math.round(toSl * 100)}% menuju stop loss`}">
         <div class="pbar-track"><i style="left:${mark.toFixed(1)}%"></i></div>
         <div class="pbar-lbl"><span>${nearSl}</span><span>Entry</span><span>${near}</span></div>
       </div>
-      <div class="pos-foot"><span class="tag ${st.cls}">${st.text}</span><span class="muted">Masuk ${fmtTime(t.entryTime)} WIB (harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)})</span>${estTxt ? `<span class="muted">${estTxt}</span>` : ""}${actions}</div>
+      <div class="tile-lv">
+        <div><span class="pg-k">Entry</span><b>${fmtPrice(t.entry)}</b></div>
+        <div><span class="pg-k">SL ${fmtPct((t.sl / t.entry - 1) * 100, 1)}</span><b class="down">${fmtPrice(t.sl)}</b></div>
+        <div><span class="pg-k">TP ${fmtPct((t.tp / t.entry - 1) * 100, 1)}</span><b class="up">${fmtPrice(t.tp)}</b></div>
+      </div>
+      <div class="tile-meta muted">${st.text}${estTxt ? `<br>${estTxt}` : ""}<br>Masuk = harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)} WIB</div>
+      ${actions}
     </div>`;
 }
 
@@ -518,7 +521,7 @@ function renderPositions() {
   const open = allTrades().filter((t) => t.open);
   if (!open.length) { lastPosHtml = ""; $("#positions").innerHTML = `<p class="empty">${Object.keys(S.res).length ? "Belum ada posisi terbuka." : "Memuat…"}</p>`; return; }
   const list = S.showAllPos ? open : open.slice(0, 10);
-  const html = list.map((t) => card(t, "position")).join("") + (open.length > 10 ? `<p><button class="btn-s ghost" id="more-pos" type="button">${S.showAllPos ? "Tampilkan lebih sedikit" : `Lihat semua ${open.length} posisi`}</button></p>` : "");
+  const html = list.map((t) => card(t, "position")).join("") + (open.length > 10 ? `<p class="more"><button class="btn-s ghost" id="more-pos" type="button">${S.showAllPos ? "Tampilkan lebih sedikit" : `Lihat semua ${open.length} posisi`}</button></p>` : "");
   if (html === lastPosHtml) return;
   lastPosHtml = html;
   $("#positions").innerHTML = html;
