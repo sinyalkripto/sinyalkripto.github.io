@@ -1,6 +1,6 @@
 import {
-  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js?v=6";
+  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
+} from "./engine.js?v=8";
 import { startGlobe } from "./globe.js?v=3";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
@@ -205,6 +205,7 @@ async function init() {
   try {
     splashProgress(12, "Menghubungkan ke Binance…");
     S.symbols = await topSymbols(CONFIG.TOP_COINS);
+    showSource();
     S.symbols.forEach((s) => { S.info[s.symbol] = s; S.prices[s.symbol] = s.price; });
     if (!S.info[S.sel]) S.sel = S.symbols[0].symbol;
     renderCoins();
@@ -226,7 +227,7 @@ async function init() {
   } catch (e) {
     console.error(e);
     hideSplash();
-    const msg = `Data Binance Futures tidak bisa diambil (${esc(e.message)}). Kemungkinan jaringan atau ekstensi browser Anda (misalnya pemblokir iklan) memblokir Binance. Coba nonaktifkan ekstensi itu untuk situs ini, pakai jaringan lain, lalu muat ulang halaman.`;
+    const msg = `Data harga tidak bisa diambil dari Binance Futures, Bybit, maupun Binance Spot (${esc(e.message)}). Kemungkinan jaringan (ISP) atau ekstensi browser (misalnya pemblokir iklan) memblokir situs-situs itu. Coba nonaktifkan ekstensi itu untuk situs ini, ganti DNS ke 1.1.1.1 atau 8.8.8.8, atau pakai jaringan lain, lalu muat ulang halaman. Detail: buka situs dengan ?debug di akhir alamat.`;
     $("#coins").innerHTML = `<p class="disclaimer">${msg}</p>`;
     $("#chart-title").innerHTML = `<p class="disclaimer" style="margin:0">${msg}</p>`;
     $("#hs-btc").textContent = "tidak tersedia";
@@ -239,7 +240,20 @@ function stopSolo() {
   if (solo.ws) { solo.ws.onclose = solo.ws.onmessage = null; solo.ws.close(); }
   Object.assign(solo, { sym: null, map: null, ws: null, starting: null });
 }
+/** Tampilkan sumber data yang dipakai kalau bukan Binance Futures. */
+function showSource() {
+  const src = dataSource();
+  const el = $("#src-note");
+  if (!el || !src) return;
+  if (src.name === "Binance Futures") { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = src.kind === "futures"
+    ? `Binance Futures tidak bisa dihubungi dari jaringan Anda, jadi data diambil dari ${src.name} (kontrak perpetual USDT). Harganya bisa sedikit beda dari Binance. Timeframe 1 detik tidak tersedia.`
+    : `Binance Futures dan Bybit tidak bisa dihubungi dari jaringan Anda, jadi data diambil dari ${src.name}. Harga Spot bisa sedikit beda dari harga Futures. Timeframe 1 detik tidak tersedia.`;
+}
+
 function ensureSolo(sym) {
+  if (!dataSource()?.aggTrades) return Promise.reject(new Error(`Candle 1 detik hanya tersedia dari Binance Futures (sekarang memakai ${dataSource()?.name ?? "sumber lain"})`));
   if (solo.sym === sym && (solo.ws || solo.starting)) return solo.starting;
   // WebSocket putus/diblokir: ambil ulang riwayat paling sering tiap 15 detik (batas API).
   if (solo.sym === sym && solo.map && Date.now() - solo.at < 15e3) return null;
@@ -790,7 +804,7 @@ if (/[?&]debug/.test(location.search)) {
   box.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:200;max-width:min(92vw,720px);max-height:45vh;overflow:auto;margin:0;padding:12px;border-radius:12px;background:rgba(0,0,0,.85);color:#fff;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap";
   document.body.appendChild(box);
   setInterval(() => {
-    box.textContent = `Sumber: Binance Futures · koin: ${S.symbols.length} · dianalisis: ${Object.keys(S.res).length}\n` + attempts.slice(-14).map((a) => `${a.ok ? "OK " : "GAGAL"} ${a.ms}ms ${a.url.split("?")[0]}${a.error ? " → " + a.error : ""}`).join("\n");
+    box.textContent = `Sumber: ${dataSource()?.name ?? "belum tersambung"} (${dataSource() ? new URL(dataSource().base).host : "-"}) · koin: ${S.symbols.length} · dianalisis: ${Object.keys(S.res).length}\n` + attempts.slice(-14).map((a) => `${a.ok ? "OK " : "GAGAL"} ${a.ms}ms ${a.url.split("?")[0]}${a.error ? " → " + a.error : ""}`).join("\n");
   }, 1000);
 }
 

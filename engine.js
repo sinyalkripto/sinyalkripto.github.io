@@ -234,13 +234,12 @@ export function tpTiming(closedTrades) {
   };
 }
 
-// ---------- Data Binance ----------
+// ---------- Data pasar ----------
 
 const toCandles = (raw) => raw.map((k) => ({
   time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5],
 }));
 
-const BASE = "https://fapi.binance.com/fapi/v1";
 /** Catatan percobaan koneksi (untuk diagnosis: buka situs dengan ?debug). */
 export const attempts = [];
 
@@ -250,20 +249,92 @@ async function fetchWithTimeout(fetchImpl, url, ms) {
   try { return await fetchImpl(url, ctl ? { signal: ctl.signal } : undefined); } finally { if (timer) clearTimeout(timer); }
 }
 
-async function getJson(path, params = {}, fetchImpl = globalThis.fetch) {
-  const url = `${BASE}${path}?${new URLSearchParams(params)}`;
+async function fetchJson(url, fetchImpl = globalThis.fetch, ms = 15000) {
   const t0 = Date.now();
   try {
-    const resp = await fetchWithTimeout(fetchImpl, url, 15000);
+    const resp = await fetchWithTimeout(fetchImpl, url, ms);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const json = await resp.json();
-    if (attempts.length < 40) attempts.push({ url, ok: true, ms: Date.now() - t0 });
+    if (attempts.length < 60) attempts.push({ url, ok: true, ms: Date.now() - t0 });
     return json;
   } catch (e) {
-    attempts.push({ url, ok: false, ms: Date.now() - t0, error: e.name === "AbortError" ? "timeout (tidak ada jawaban)" : String(e.message || e) });
-    throw new Error(`Binance Futures tidak bisa dihubungi (${e.name === "AbortError" ? "timeout" : e.message || e})`);
+    const msg = e.name === "AbortError" ? "timeout (tidak ada jawaban)" : String(e.message || e);
+    attempts.push({ url, ok: false, ms: Date.now() - t0, error: msg });
+    throw new Error(msg);
   }
 }
+
+// ---------- Sumber data ----------
+// Dicoba berurutan; yang pertama menjawab dipakai terus. Di beberapa jaringan (misalnya ISP di
+// Indonesia) domain binance.com diblokir, jadi ada cadangan: Bybit (kontrak perpetual USDT, harga
+// futures juga) dan terakhir Binance Spot lewat domain binance.vision.
+
+const BYBIT_TF = { "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "4h": "240", "1d": "D" };
+
+function binanceSource(name, base, kind, prefix) {
+  const get = (path, params, f) => fetchJson(`${base}${prefix}${path}?${new URLSearchParams(params)}`, f);
+  return {
+    name, kind, base,
+    probe: (f) => fetchJson(`${base}${prefix}/ping`, f, 7000),
+    klines: async (symbol, interval, limit, f) =>
+      toCandles(await get("/klines", { symbol, interval, limit: kind === "spot" ? Math.min(limit, 1000) : limit }, f)),
+    // [{symbol, price, change(%), volume(USDT)}]
+    tickers24: async (f) => (await get("/ticker/24hr", {}, f))
+      .map((t) => ({ symbol: t.symbol, price: +t.lastPrice, change: +t.priceChangePercent, volume: +t.quoteVolume })),
+    prices: async (f) => (await get("/ticker/price", {}, f)).map((t) => ({ symbol: t.symbol, price: +t.price })),
+    // Futures: kontrak perpetual USDT aktif. Spot: pasangan USDT aktif.
+    symbols: async (f) => new Set((await get("/exchangeInfo", {}, f)).symbols
+      .filter((x) => x.status === "TRADING" && x.quoteAsset === "USDT" && (kind === "spot" || x.contractType === "PERPETUAL"))
+      .map((x) => x.symbol)),
+    aggTrades: kind === "futures" ? (params, f) => get("/aggTrades", params, f) : null,
+  };
+}
+
+function bybitSource(name, base) {
+  const get = async (path, params, f) => {
+    const j = await fetchJson(`${base}/v5/market${path}?${new URLSearchParams({ category: "linear", ...params })}`, f);
+    if (j.retCode !== 0) throw new Error(`Bybit: ${j.retMsg}`);
+    return j.result;
+  };
+  return {
+    name, kind: "futures", base,
+    probe: (f) => fetchJson(`${base}/v5/market/time`, f, 7000),
+    klines: async (symbol, interval, limit, f) => {
+      // Bybit: maks 1000 per permintaan, urutan terbaru dulu.
+      const r = await get("/kline", { symbol, interval: BYBIT_TF[interval], limit: Math.min(limit, 1000) }, f);
+      return toCandles(r.list.map((k) => [+k[0], k[1], k[2], k[3], k[4], k[5]]).reverse());
+    },
+    tickers24: async (f) => (await get("/tickers", {}, f)).list
+      .map((t) => ({ symbol: t.symbol, price: +t.lastPrice, change: +t.price24hPcnt * 100, volume: +t.turnover24h })),
+    prices: async (f) => (await get("/tickers", {}, f)).list.map((t) => ({ symbol: t.symbol, price: +t.lastPrice })),
+    symbols: async (f) => new Set((await get("/instruments-info", { limit: 1000 }, f)).list
+      .filter((x) => x.status === "Trading" && x.contractType === "LinearPerpetual" && x.quoteCoin === "USDT")
+      .map((x) => x.symbol)),
+    aggTrades: null,
+  };
+}
+
+export const SOURCES = [
+  binanceSource("Binance Futures", "https://fapi.binance.com", "futures", "/fapi/v1"),
+  bybitSource("Bybit Futures", "https://api.bybit.com"),
+  bybitSource("Bybit Futures", "https://api.bytick.com"),
+  binanceSource("Binance Spot", "https://data-api.binance.vision", "spot", "/api/v3"),
+];
+let source = null;
+/** Sumber yang sedang dipakai: {name, kind} atau null kalau belum tersambung. */
+export const dataSource = () => source;
+
+/** Pilih sumber pertama yang menjawab. Dipanggil otomatis oleh semua fungsi data. */
+export async function connect(fetchImpl, sources = SOURCES) {
+  if (source) return source;
+  const errors = [];
+  for (const src of sources) {
+    try { await src.probe(fetchImpl); source = src; return src; } catch (e) { errors.push(`${src.name} (${new URL(src.base).host}): ${e.message}`); }
+  }
+  throw new Error(`Semua sumber data gagal dihubungi: ${errors.join("; ")}`);
+}
+/** Untuk tes: lupakan sumber yang terpilih. */
+export const resetSource = () => { source = null; };
 
 /** Jumlah candle per timeframe. */
 export const candleLimit = (interval) => (INTERVAL_MS[interval] < INTERVAL_MS["15m"] ? C.FAST_LIMIT : C.CANDLE_LIMIT);
@@ -271,8 +342,8 @@ export const candleLimit = (interval) => (INTERVAL_MS[interval] < INTERVAL_MS["1
 /** Candle yang sudah close + candle yang sedang berjalan (terpisah). */
 export async function fetchKlines(symbol, interval, limit = candleLimit(interval), fetchImpl) {
   if (interval === "1s") return splitLive(await fetchTradeCandles(symbol, fetchImpl));
-  const all = toCandles(await getJson("/klines", { symbol, interval, limit }, fetchImpl));
-  return splitLive(all);
+  const src = await connect(fetchImpl);
+  return splitLive(await src.klines(symbol, interval, limit, fetchImpl));
 }
 const splitLive = (all) => ({ closed: all.slice(0, -1), live: all[all.length - 1] });
 
@@ -313,6 +384,9 @@ export function candlesFromMap(map, step = 1000, maxCandles = C.FAST_LIMIT, now 
 
 /** Riwayat transaksi terbaru (maks `pages` x 1000 transaksi) -> Map candle 1 detik. */
 export async function fetchTradeMap(symbol, fetchImpl, pages = 10) {
+  const src = await connect(fetchImpl);
+  if (!src.aggTrades) throw new Error(`Candle 1 detik hanya tersedia dari Binance Futures (sekarang memakai ${src.name})`);
+  const getJson = (_path, params, f) => src.aggTrades(params, f);
   const map = new Map();
   let batch = await getJson("/aggTrades", { symbol, limit: 1000 }, fetchImpl);
   for (let i = 0; batch.length; i++) {
@@ -328,29 +402,27 @@ async function fetchTradeCandles(symbol, fetchImpl) {
   return candlesFromMap(await fetchTradeMap(symbol, fetchImpl), 1000, C.FAST_LIMIT, Date.now());
 }
 
-/** Kontrak perpetual USDT yang sedang aktif: Set nama simbol. */
+/** Kontrak perpetual USDT yang sedang aktif (pasangan USDT kalau sumbernya Spot): Set nama simbol. */
 export async function fetchPerpetuals(fetchImpl) {
-  const info = await getJson("/exchangeInfo", {}, fetchImpl);
-  return new Set(info.symbols
-    .filter((s) => s.status === "TRADING" && s.contractType === "PERPETUAL" && s.quoteAsset === "USDT")
-    .map((s) => s.symbol));
+  return (await connect(fetchImpl)).symbols(fetchImpl);
 }
 
 /** N kontrak perpetual USDT dengan volume 24 jam terbesar, tanpa stablecoin (CONFIG.EXCLUDE). */
 export async function topSymbols(n = C.TOP_COINS, fetchImpl) {
-  const tickers = await getJson("/ticker/24hr", {}, fetchImpl);
-  const perps = await fetchPerpetuals(fetchImpl);
+  const src = await connect(fetchImpl);
+  const tickers = await src.tickers24(fetchImpl);
+  const perps = await src.symbols(fetchImpl);
   const top = tickers
-    .filter((t) => t.symbol.endsWith("USDT") && perps.has(t.symbol) && !C.EXCLUDE.includes(t.symbol) && +t.quoteVolume > 0)
-    .sort((a, b) => +b.quoteVolume - +a.quoteVolume)
+    .filter((t) => t.symbol.endsWith("USDT") && perps.has(t.symbol) && !C.EXCLUDE.includes(t.symbol) && t.volume > 0)
+    .sort((a, b) => b.volume - a.volume)
     .slice(0, n);
-  const extras = tickers.filter((t) => C.EXTRA_SYMBOLS.includes(t.symbol) && !top.includes(t));
-  return [...top, ...extras]
-    .map((t) => ({ symbol: t.symbol, price: +t.lastPrice, change: +t.priceChangePercent, volume: +t.quoteVolume }));
+  const extras = tickers.filter((t) => C.EXTRA_SYMBOLS.includes(t.symbol) && perps.has(t.symbol) && !top.includes(t));
+  return [...top, ...extras];
 }
 
+/** Harga terakhir semua simbol: [{symbol, price}]. */
 export async function fetchTickers(fetchImpl) {
-  return getJson("/ticker/price", {}, fetchImpl);
+  return (await connect(fetchImpl)).prices(fetchImpl);
 }
 
 export const tradeUrl = (symbol) => `https://www.binance.bh/en/futures/${symbol}`;
