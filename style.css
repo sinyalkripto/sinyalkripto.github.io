@@ -197,3 +197,25 @@ footer { color: var(--faint); font-size: 12px; line-height: 1.7; padding: 56px 0
 .hist { margin-top: 20px; }
 .hist summary { cursor: pointer; font-weight: 600; padding: 10px 0; color: var(--muted); }
 .hist summary:hover { color: var(--text); }
+
+/* Kartu posisi: baris ringkas Entry / SL / TP / P/L + bar posisi harga */
+.pos { gap: 12px; }
+.pg { display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); gap: 12px; align-items: start; }
+.pg > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pg b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.pg-coin { flex-direction: row !important; align-items: center; gap: 10px !important; }
+.pg-coin b { font-size: 17px; }
+.pg-k { font-size: 12px; color: var(--muted); }
+.pg-sub { font-size: 12px; }
+.pbar-track { position: relative; height: 10px; border-radius: 999px; background: linear-gradient(90deg, var(--down) 0%, color-mix(in srgb, var(--down) 25%, var(--bg2)) 35%, var(--bg2) 50%, color-mix(in srgb, var(--up) 25%, var(--bg2)) 65%, var(--up) 100%); }
+.pbar-track::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); opacity: .6; }
+.pbar-track i { position: absolute; top: -4px; width: 4px; height: 18px; margin-left: -2px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px var(--card); transition: left .4s; }
+.pbar-lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.pos-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 13px; }
+.pos-link { margin-left: auto; color: var(--accent, #0A84FF); text-decoration: none; font-weight: 500; white-space: nowrap; }
+@media (max-width: 640px) {
+  .pg { grid-template-columns: repeat(4, 1fr); gap: 10px 8px; }
+  .pg-coin { grid-column: 1 / -1; }
+  .pg b { font-size: 14px; }
+  .pos-link { margin-left: 0; }
+}

@@ -468,19 +468,27 @@ function renderPositions() {
     const pnl = (long ? p / t.entry - 1 : 1 - p / t.entry) * 100;
     const toTp = Math.max(0, Math.min(1, (p - t.entry) / (t.tp - t.entry)));
     const toSl = Math.max(0, Math.min(1, (p - t.entry) / (t.sl - t.entry)));
-    const prog = pnl >= 0 ? { w: toTp, c: "var(--up)", n: `${Math.round(toTp * 100)}% menuju take profit` } : { w: toSl, c: "var(--down)", n: `${Math.round(toSl * 100)}% menuju stop loss` };
+    // Bar posisi: SL di kiri, harga masuk di tengah, TP di kanan (berlaku untuk long maupun short).
+    const mark = pnl >= 0 ? 50 + toTp * 50 : 50 - toSl * 50;
+    const near = pnl >= 0 ? `TP · ${Math.round(toTp * 100)}%` : "TP";
+    const nearSl = pnl < 0 ? `SL · ${Math.round(toSl * 100)}%` : "SL";
     const hit = liveHit(t);
     const st = hit ? { cls: hit === "TP" ? "ok" : "bad", text: hit === "TP" ? `Kena TP sekitar ${fmtClock(Date.now())} WIB` : `Kena SL sekitar ${fmtClock(Date.now())} WIB` } : entryStatus(t, t.tf, t.atr ?? 0, p);
     const est = tpEstimate(t);
-    const estTxt = est ? `Perkiraan kena TP ± ${fmtTime(est.at)} WIB (biasanya ${fmtClock(est.lo)}–${fmtClock(est.hi)}) · ${fmtDur(est.tm.median)} setelah masuk${est.overdue ? ' · <span class="tag warn">lewat perkiraan waktu</span>' : ""}` : "Perkiraan TP belum tersedia";
+    const estTxt = est ? `Perkiraan TP ± ${fmtTime(est.at)} WIB${est.overdue ? ' <span class="tag warn">lewat perkiraan</span>' : ""}` : "";
     return `<div class="pos">
-      <div class="pos-top">
-        <div class="pos-id">${logo(t.sym)}<b style="font-size:17px">${esc(baseAsset(t.sym))}</b><span class="side ${t.side}">${t.side}</span><span class="muted" style="font-size:13px">${TF_LABEL[t.tf]}</span></div>
-        <div class="pos-right"><span style="font-size:17px">${fmtPrice(p)}</span><span class="pnl ${pnl >= 0 ? "up" : "down"}" title="Untung/rugi kalau masuk di harga sinyal, dihitung dari harga sekarang">${fmtPct(pnl)} <span class="muted" style="font-size:12px;font-weight:400">dari harga masuk</span></span><a class="trade" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>
+      <div class="pg">
+        <div class="pg-coin">${logo(t.sym)}<span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span><br><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]}</span></span></div>
+        <div><span class="pg-k">Entry</span><b>${fmtPrice(t.entry)}</b><span class="pg-sub muted">${fmtClock(t.entryTime)} WIB</span></div>
+        <div><span class="pg-k">SL</span><b class="down">${fmtPrice(t.sl)}</b><span class="pg-sub muted">${fmtPct((t.sl / t.entry - 1) * 100)}</span></div>
+        <div><span class="pg-k">TP</span><b class="up">${fmtPrice(t.tp)}</b><span class="pg-sub muted">${fmtPct((t.tp / t.entry - 1) * 100)}</span></div>
+        <div><span class="pg-k">P/L</span><b class="${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</b><span class="pg-sub muted">harga ${fmtPrice(p)}</span></div>
       </div>
-      <div class="bar"><i style="width:${prog.w * 100}%;background:${prog.c}"></i></div>
-      <div class="pos-meta"><span>Masuk ${fmtTime(t.entryTime)} WIB di ${fmtPrice(t.entry)} (harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)}) · SL ${fmtPrice(t.sl)} (${fmtPct((t.sl / t.entry - 1) * 100)}) · TP ${fmtPrice(t.tp)} (${fmtPct((t.tp / t.entry - 1) * 100)})</span><span class="tag ${st.cls}">${st.text}</span></div>
-      <div class="pos-meta"><span>${estTxt}</span><span>${prog.n}</span></div>
+      <div class="pbar" role="img" aria-label="Harga sekarang ${pnl >= 0 ? `${Math.round(toTp * 100)}% menuju take profit` : `${Math.round(toSl * 100)}% menuju stop loss`}">
+        <div class="pbar-track"><i style="left:${mark.toFixed(1)}%"></i></div>
+        <div class="pbar-lbl"><span>${nearSl}</span><span>Entry</span><span>${near}</span></div>
+      </div>
+      <div class="pos-foot"><span class="tag ${st.cls}">${st.text}</span><span class="muted">Masuk ${fmtTime(t.entryTime)} WIB (harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)})</span>${estTxt ? `<span class="muted">${estTxt}</span>` : ""}<a class="pos-link" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>
     </div>`;
   }).join("") + (open.length > 10 ? `<p><button class="btn ghost" style="color:var(--accent);background:var(--bg2);min-height:40px;font-size:14px" id="more-pos" type="button">${S.showAllPos ? "Tampilkan lebih sedikit" : `Lihat semua ${open.length} posisi`}</button></p>` : "");
   if (html === lastPosHtml) return;
