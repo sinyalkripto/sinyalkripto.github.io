@@ -193,3 +193,7 @@ footer { color: var(--faint); font-size: 12px; line-height: 1.7; padding: 56px 0
 @media (prefers-reduced-motion: reduce) {
   .in, .reveal, .splash-candles i, .splash-title, .splash-sub, .splash-candles path { animation: none !important; opacity: 1 !important; transform: none !important; transition: none !important; stroke-dashoffset: 0 !important; }
 }
+
+.hist { margin-top: 20px; }
+.hist summary { cursor: pointer; font-weight: 600; padding: 10px 0; color: var(--muted); }
+.hist summary:hover { color: var(--text); }

@@ -498,28 +498,40 @@ function renderSignals() {
   segButtons($("#sig-tf"), [["all", "Semua"], ...TFS.map((t) => [t, TF_LABEL[t] + (EXPERIMENTAL.has(t) ? "*" : t === MAIN_TF ? " ★" : "")])], S.sigTf, (v) => { S.sigTf = v; renderSignals(); });
   segButtons($("#sig-side"), [["all", "Long & short"], ["LONG", "Long"], ["SHORT", "Short"]], S.sigSide, (v) => { S.sigSide = v; renderSignals(); });
   const now = Date.now();
-  const rows = allTrades().filter((t) => now - t.entryTime < 7 * 864e5 && (S.sigTf === "all" || t.tf === S.sigTf) && (S.sigSide === "all" || t.side === S.sigSide)).slice(0, 40);
-  if (!rows.length) { $("#signals").innerHTML = `<tr><td colspan="9" class="empty">Belum ada sinyal dalam 7 hari terakhir untuk pilihan ini.</td></tr>`; return; }
-  $("#signals").innerHTML = rows.map((t) => {
-    let status, est = "–";
-    if (t.open) {
-      const s = entryStatus(t, t.tf, t.atr ?? 0, S.prices[t.sym] ?? t.entry);
-      status = `<span class="tag ${s.cls}">${s.cls === "ok" ? "Masih berlaku" : s.cls === "warn" ? "Lewat jam masuk" : "Kedaluwarsa"}</span>`;
-      const e = tpEstimate(t);
-      if (e) est = `± ${fmtTime(e.at)}`;
-    } else if (t.result === "TP") status = `<span class="up">▲ Kena TP ${fmtTime(t.hitFrom)}–${fmtClock(t.hitTo)} · ${fmtPct(t.ret * 100, 1)}</span>`;
-    else if (t.result === "SL") status = `<span class="down">▼ Kena SL ${fmtTime(t.hitFrom)}–${fmtClock(t.hitTo)} · ${fmtPct(t.ret * 100, 1)}</span>`;
-    else if (t.result === "WAKTU") status = `<span class="${t.ret >= 0 ? "up" : "down"}">Ditutup batas waktu ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`;
-    else status = "Ditutup";
+  const pick = (t) => (S.sigTf === "all" || t.tf === S.sigTf) && (S.sigSide === "all" || t.side === S.sigSide);
+  const coin = (t) => `<span style="display:inline-flex;align-items:center;gap:8px;font-weight:500">${logo(t.sym, "sm")}${esc(baseAsset(t.sym))}<span class="muted" style="font-size:12px">${TF_LABEL[t.tf]}</span></span>`;
+  const trades = allTrades().filter(pick);
+
+  // Sinyal aktif: posisi yang belum kena TP/SL (juga belum kena di candle yang sedang berjalan).
+  const active = trades.filter((t) => t.open && !liveHit(t));
+  $("#signals").innerHTML = active.length ? active.map((t) => {
+    const s = entryStatus(t, t.tf, t.atr ?? 0, S.prices[t.sym] ?? t.entry);
+    const e = tpEstimate(t);
+    // Tombol pasang posisi hanya selama sinyal masih layak dimasuki.
+    const btn = s.cls === "bad"
+      ? `<span class="muted" style="font-size:12px">Jangan dikejar</span>`
+      : `<a class="trade" style="min-height:30px;font-size:12px;padding:0 12px" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang posisi ↗</a>`;
     return `<tr>
-      <td>${fmtTime(t.entryTime)}</td>
-      <td><span style="display:inline-flex;align-items:center;gap:8px;font-weight:500">${logo(t.sym, "sm")}${esc(baseAsset(t.sym))}<span class="muted" style="font-size:12px">${TF_LABEL[t.tf]}</span></span></td>
+      <td>${fmtTime(t.entryTime)}</td><td>${coin(t)}</td>
       <td><span class="side ${t.side}">${t.side}</span></td>
       <td class="r">${fmtPrice(t.entry)}</td><td class="r muted">${fmtPrice(t.sl)}</td><td class="r muted">${fmtPrice(t.tp)}</td>
-      <td>${status}</td><td class="muted">${est}</td>
-      <td class="r"><a class="trade" style="min-height:30px;font-size:12px;padding:0 12px" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang posisi ↗</a></td>
+      <td><span class="tag ${s.cls}">${s.cls === "ok" ? "Masih berlaku" : s.cls === "warn" ? "Lewat jam masuk" : "Kedaluwarsa"}</span></td>
+      <td class="muted">${e ? `± ${fmtTime(e.at)}` : "–"}</td>
+      <td class="r">${btn}</td>
     </tr>`;
-  }).join("");
+  }).join("") : `<tr><td colspan="9" class="empty">Belum ada sinyal baru untuk pilihan ini. Sinyal muncul saat candle tutup, halaman ini memperbarui sendiri.</td></tr>`;
+
+  // Riwayat: sinyal 7 hari terakhir yang sudah selesai, tanpa tombol pasang posisi.
+  const done = trades.filter((t) => !t.open && now - t.entryTime < 7 * 864e5).slice(0, 60);
+  const wins = done.filter((t) => t.ret > 0).length;
+  $("#hist-sum").textContent = done.length ? `Riwayat 7 hari: ${done.length} sinyal selesai · ${wins} untung, ${done.length - wins} rugi` : "Riwayat 7 hari: belum ada sinyal yang selesai";
+  $("#history").innerHTML = done.length ? done.map((t) => {
+    const status = t.result === "TP" ? `<span class="up">▲ Kena TP ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`
+      : t.result === "SL" ? `<span class="down">▼ Kena SL ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`
+      : `<span class="${t.ret >= 0 ? "up" : "down"}">Ditutup batas waktu ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`;
+    return `<tr><td>${fmtTime(t.entryTime)}</td><td>${coin(t)}</td><td><span class="side ${t.side}">${t.side}</span></td>
+      <td class="r">${fmtPrice(t.entry)}</td><td class="r muted">${fmtPrice(t.sl)}</td><td class="r muted">${fmtPrice(t.tp)}</td><td>${status}</td></tr>`;
+  }).join("") : `<tr><td colspan="7" class="empty">Belum ada.</td></tr>`;
 }
 
 function renderBacktest() {
