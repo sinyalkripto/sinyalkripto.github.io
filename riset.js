@@ -1,6 +1,6 @@
 // Riset jumlah koin: ambil riwayat panjang untuk koin bervolume terbesar, jalankan strategi
 // yang sama (engine.js), lalu ringkas sinyal per hari, win rate, dan profit factor per kelompok koin.
-import { CONFIG, SETUP_LABEL, analyze, connect, isCryptoSymbol } from "./engine.js?v=13";
+import { CONFIG, SETUP_LABEL, analyze, connect, isCryptoSymbol } from "./engine.js?v=14";
 
 const DAYS = 180;              // jendela evaluasi
 const N_COINS = 100;           // kandidat koin teratas menurut volume
@@ -119,7 +119,7 @@ async function run() {
     allSecond: stats(per.flatMap((p) => p.trades), mid, to),
   };
 
-  // Per setup dan timeframe, untuk 40 koin teratas (sama dengan yang dipantau situs).
+  // Per setup dan timeframe, untuk koin teratas yang dipantau situs (sama dengan yang dipantau situs).
   const top = per.slice(0, CONFIG.TOP_COINS);
   const bySetup = [];
   for (const [tf, key] of [["1h", "trades"], ["4h", "trades4"]]) {
