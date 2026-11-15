@@ -1,0 +1,8 @@
+{
+  "name": "titik-masuk-notifikasi",
+  "private": true,
+  "type": "module",
+  "description": "Cek sinyal tiap jam (GitHub Actions) dan kirim email kalau ada sinyal baru atau posisi selesai.",
+  "scripts": { "test": "node tes.mjs" },
+  "dependencies": { "nodemailer": "10.3.1" }
+}

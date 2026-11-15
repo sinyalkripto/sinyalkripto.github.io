@@ -1,0 +1,63 @@
+# Cek sinyal tiap jam (sesaat setelah candle 1 jam tutup) dan kirim email kalau ada sinyal baru,
+# SL digeser ke harga masuk, atau posisi selesai. Cara setup: notify/README.md.
+name: Notifikasi email
+
+on:
+  schedule:
+    - cron: "2 * * * *"
+  workflow_dispatch:
+    inputs:
+      tes:
+        description: "Kirim email tes sekarang (berisi posisi yang sedang terbuka)"
+        type: boolean
+        default: true
+  # Cek kode notifikasi tiap ada perubahan (tanpa kirim email).
+  push:
+    paths: ["notify/**", "engine.js", ".github/workflows/notifikasi-email.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notifikasi-email
+  cancel-in-progress: false
+
+jobs:
+  cek:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: notify/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: notify
+      - run: node notify/tes.mjs
+
+      # Catatan posisi yang sudah dikirim, disimpan di cache Actions (bukan di repo).
+      - name: Ambil catatan run sebelumnya
+        if: github.event_name != 'push'
+        uses: actions/cache/restore@v4
+        with:
+          path: notify/state.json
+          key: notif-state-${{ github.run_id }}
+          restore-keys: notif-state-
+
+      - name: Cek sinyal dan kirim email
+        run: node notify/cek-sinyal.mjs
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          DRY_RUN: ${{ github.event_name == 'push' && '1' || '0' }}
+          TEST_EMAIL: ${{ github.event_name == 'workflow_dispatch' && inputs.tes && '1' || '0' }}
+
+      - name: Simpan catatan
+        if: always() && github.event_name != 'push' && hashFiles('notify/state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: notify/state.json
+          key: notif-state-${{ github.run_id }}

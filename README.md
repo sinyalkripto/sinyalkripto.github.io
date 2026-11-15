@@ -112,12 +112,18 @@ untung kecil, jadi sebagian kenaikan win rate berasal dari situ.
 
 Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV dari crypto-signal-bot/data).
 
+## Notifikasi email
+
+GitHub Actions mengecek sinyal 1 jam dan 4 jam tiap jam dan mengirim email kalau ada sinyal baru, SL digeser
+ke harga masuk, atau posisi selesai. Setup (App Password Gmail + secret repo): `notify/README.md`.
+
 ## File
 
 - `engine.js`: logika sinyal, backtest, dan perkiraan waktu take profit.
 - `app.js`: tampilan, grafik (TradingView Lightweight Charts), analisis teknikal.
 - `globe.js`: animasi bumi di halaman pembuka.
 - `riset/uji-strategi.mjs`: uji strategi di data historis.
+- `notify/`: notifikasi email lewat GitHub Actions (`.github/workflows/notifikasi-email.yml`).
 
 Semua data diambil langsung dari API publik oleh browser pengunjung. Urutan sumber: Binance Futures,
 lalu Bybit (kontrak perpetual USDT, api.bybit.com lalu api.bytick.com) kalau Binance diblokir di
