@@ -84,6 +84,24 @@ menambah banyak sinyal 4 jam (breakout-retest, RSI 2, pantulan EMA) rugi di 60 h
 Sampel range 4 jam masih kecil (48 trade), jadi pantau di `riset.html` (sekarang juga menguji 4 jam
 dan memecah hasil per setup).
 
+### Tahap 2: exit 1 jam (TP 1,5 ATR + breakeven)
+
+Riset 40 koin di `riset.html` (180 hari sampai 15 Nov 2026): sinyal 1 jam 16/hari (100% hari), win 70,7%,
+tapi PF hanya 1,08 dan 30 hari terakhir 0,87. Dicoba di 18 koin (120 hari pilih, 60 hari uji):
+
+| Varian 1 jam | Sinyal/hari | Win rate | PF 120 hari | PF 60 hari terakhir |
+|---|---|---|---|---|
+| TP 1 / SL 2 (tahap 1) | 6,5 | 72,3% | 1,16 | 1,28 |
+| TP 1,5 / SL 2 + breakeven di 50% | 7,1 | 76,3% | 1,25 | 1,29 |
+| Filter BTC di atas EMA 200 | 5,3 | 72,9% | 1,29 | 1,23 |
+| TP 1,5 / SL 1,5 | 6,9 | 55% | 1,19 | 1,14 |
+
+Dipakai: TP 1,5 ATR, SL 2 ATR, SL digeser ke harga masuk + 0,12% (biaya) setelah harga jalan 50% ke TP.
+Sekitarnya stabil (TP 1,25–1,75, breakeven 40–60% semua PF 1,06–1,38). Filter BTC tidak dipakai: memotong
+20% sinyal tanpa perbaikan di periode uji, dan merusak 4 jam. Breakeven di 4 jam juga merusak, jadi 4 jam
+tidak berubah. Catatan: Oktober tetap lemah di semua varian (PF 0,8–0,9); "Impas" dihitung sebagai trade
+untung kecil, jadi sebagian kenaikan win rate berasal dari situ.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam

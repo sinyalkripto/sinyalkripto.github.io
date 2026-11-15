@@ -1,6 +1,6 @@
 import {
-  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, SETUP_LABEL, setupsFor,
-} from "./engine.js?v=12";
+  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, SETUP_LABEL, setupsFor, exitFor,
+} from "./engine.js?v=13";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
 const $ = (s) => document.querySelector(s);
@@ -511,7 +511,7 @@ function card(t, mode) {
         <div><span class="pg-k">SL ${fmtPct((t.sl / t.entry - 1) * 100, 1)}</span><b class="down">${fmtPrice(t.sl)}</b></div>
         <div><span class="pg-k">TP ${fmtPct((t.tp / t.entry - 1) * 100, 1)}</span><b class="up">${fmtPrice(t.tp)}</b></div>
       </div>
-      <div class="tile-meta muted">${st.text}${estTxt ? `<br>${estTxt}` : ""}<br>Masuk = harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)} WIB</div>
+      <div class="tile-meta muted">${t.breakeven ? "SL sudah digeser ke harga masuk (posisi aman dari rugi)<br>" : t.breakevenAt ? `SL digeser ke harga masuk begitu harga sampai ${fmtPrice(t.entry + (t.tp - t.entry) * t.breakevenAt)}<br>` : ""}${st.text}${estTxt ? `<br>${estTxt}` : ""}<br>Masuk = harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)} WIB</div>
       ${actions}
     </div>`;
 }
@@ -606,6 +606,7 @@ function renderSignals() {
   $("#history").innerHTML = done.length ? done.map((t) => {
     const status = t.result === "TP" ? `<span class="up">▲ Kena TP ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`
       : t.result === "SL" ? `<span class="down">▼ Kena SL ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`
+      : t.result === "BE" ? `<span class="muted">● Impas (SL sudah digeser ke entry) ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`
       : `<span class="${t.ret >= 0 ? "up" : "down"}">Ditutup batas waktu ${fmtTime(t.hitFrom)} · ${fmtPct(t.ret * 100, 1)}</span>`;
     return `<tr><td>${fmtTime(t.entryTime)}</td><td>${coin(t)}</td><td><span class="side ${t.side}">${t.side}</span></td>
       <td class="r">${fmtPrice(t.entry)}</td><td class="r muted">${fmtPrice(t.sl)}</td><td class="r muted">${fmtPrice(t.tp)}</td><td>${status}</td></tr>`;
@@ -628,7 +629,7 @@ function renderWhy(trades, nActive) {
     const t4 = usesT ? l.trend : tfTrend;
     const same = tfTrend !== "campur" && tfTrend === t4;
     const strong = l.adx >= CONFIG.ADX_MIN;
-    const big = CONFIG.TAKE_PROFIT_ATR * l.atr / l.close * 100 >= CONFIG.MIN_TAKE_PROFIT_PERCENT;
+    const big = exitFor(tf).tp * l.atr / l.close * 100 >= CONFIG.MIN_TAKE_PROFIT_PERCENT;
     let wait, score;
     if (!same) { wait = "Tren belum searah, tunggu"; score = 3; }
     else if (!strong) { wait = "Pasar sideways (ADX rendah), tunggu tren menguat"; score = 2; }
@@ -870,7 +871,7 @@ function renderChart(fit = false) {
     for (const t of [...sd.closed, ...(sd.open ? [sd.open] : [])]) {
       const long = t.side === "LONG";
       markers.push({ time: ts(t.entryTime - INTERVAL_MS[S.tf]), position: long ? "belowBar" : "aboveBar", color: long ? c.up : c.down, shape: long ? "arrowUp" : "arrowDown", text: long ? "LONG" : "SHORT" });
-      if (t.result === "TP" || t.result === "SL") markers.push({ time: ts(t.hitFrom), position: "inBar", color: t.result === "TP" ? c.up : c.down, shape: "circle", text: t.result });
+      if (t.result === "TP" || t.result === "SL" || t.result === "BE") markers.push({ time: ts(t.hitFrom), position: "inBar", color: t.result === "TP" ? c.up : t.result === "BE" ? c.muted || "#888" : c.down, shape: "circle", text: t.result });
     }
   }
   markers.sort((a, b) => a.time - b.time);

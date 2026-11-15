@@ -39,6 +39,12 @@ export const CONFIG = {
   // Riset Nov 2026 (README): breakout-retest menambah ±3x sinyal 1 jam dengan win rate dan PF yang sama
   // atau lebih baik; range (mean reversion) menambah sinyal 4 jam. Timeframe lain tetap pullback saja.
   SETUPS: { "1h": ["pullback", "retest"], "4h": ["pullback", "range"] },
+  // Exit per timeframe untuk pullback dan retest (default: TAKE_PROFIT_ATR / STOP_LOSS_ATR, tanpa breakeven).
+  // 1 jam (riset Nov 2026): TP 1,5 ATR, SL 2 ATR, dan SL digeser ke harga masuk (+ biaya) begitu harga sudah
+  // jalan setengah jarak ke TP. PF naik dari 1,21 ke 1,26 dengan sinyal sedikit lebih banyak; win rate ±76%.
+  EXITS: { "1h": { tp: 1.5, sl: 2, breakevenAt: 0.5 } },
+  // Jarak SL baru dari harga masuk setelah breakeven (menutup biaya buka + tutup).
+  BREAKEVEN_BUFFER_PERCENT: 0.12,
   DEFAULT_SETUPS: ["pullback"],
   // Breakout-retest: harga tutup menembus high/low 20 candle sebelumnya, lalu dalam 12 candle balik
   // menyentuh level yang ditembus (toleransi 0,25 ATR) dan tutup lagi di sisi breakout dengan candle searah.
@@ -133,6 +139,8 @@ export function alignTrend(candles, trendCandles) {
 /** Nama setup untuk tampilan. */
 export const SETUP_LABEL = { pullback: "Pullback", retest: "Breakout-retest", range: "Range" };
 export const setupsFor = (interval) => C.SETUPS[interval] || C.DEFAULT_SETUPS;
+/** Aturan exit pullback/retest per timeframe: {tp, sl (kelipatan ATR), breakevenAt (bagian jarak TP) atau null}. */
+export const exitFor = (interval) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}) });
 
 /** Rata-rata dan simpangan baku bergulir (populasi), NaN sebelum cukup data. */
 function rolling(values, period) {
@@ -155,7 +163,7 @@ function rolling(values, period) {
  * - range: pantulan dari luar Bollinger Band saat pasar sideways (lihat CONFIG.RANGE_*).
  * Tiap baris membawa SL/TP dan batas lama posisi milik setup yang memicu sinyal di baris itu.
  */
-export function addIndicators(candles, trendCandles = null, maxSlPercent = trendCandles ? C.MAX_STOP_LOSS_PERCENT : Infinity, setups = C.DEFAULT_SETUPS) {
+export function addIndicators(candles, trendCandles = null, maxSlPercent = trendCandles ? C.MAX_STOP_LOSS_PERCENT : Infinity, setups = C.DEFAULT_SETUPS, exit = exitFor(null)) {
   const close = candles.map((k) => k.close);
   const emaFast = ema(close, C.EMA_FAST), emaSlow = ema(close, C.EMA_SLOW), emaTrend = ema(close, C.EMA_TREND);
   const r = rsi(close, C.RSI_PERIOD), a = atr(candles, C.ATR_PERIOD), x = adx(candles, C.ADX_PERIOD).adx;
@@ -177,10 +185,10 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
     const found = [];
 
     // 1) Pullback searah tren.
-    const slDist = C.STOP_LOSS_ATR * a[i], tpDist = C.TAKE_PROFIT_ATR * a[i];
+    const slDist = exit.sl * a[i], tpDist = exit.tp * a[i];
     if (setups.includes("pullback") && warm && strong && big(tpDist) && sane(slDist)) {
-      if (trendUp && k.close > emaTrend[i] && r[i - 1] < C.RSI_PULLBACK_LONG && r[i] >= C.RSI_PULLBACK_LONG) found.push(["BELI", "pullback", slDist, tpDist, C.MAX_HOLD_CANDLES]);
-      if (shortOn && trendDn && k.close < emaTrend[i] && r[i - 1] > C.RSI_PULLBACK_SHORT && r[i] <= C.RSI_PULLBACK_SHORT) found.push(["SHORT", "pullback", slDist, tpDist, C.MAX_HOLD_CANDLES]);
+      if (trendUp && k.close > emaTrend[i] && r[i - 1] < C.RSI_PULLBACK_LONG && r[i] >= C.RSI_PULLBACK_LONG) found.push(["BELI", "pullback", slDist, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
+      if (shortOn && trendDn && k.close < emaTrend[i] && r[i - 1] > C.RSI_PULLBACK_SHORT && r[i] <= C.RSI_PULLBACK_SHORT) found.push(["SHORT", "pullback", slDist, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
     }
 
     // 2) Breakout-retest.
@@ -195,8 +203,8 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
       if (brkUp) { upLevel = hh; upAt = i; }
       if (brkDn) { dnLevel = ll; dnAt = i; }
       if (warm && strong && big(tpDist) && sane(slDist)) {
-        if (rtUp && trendUp) found.push(["BELI", "retest", slDist, tpDist, C.MAX_HOLD_CANDLES]);
-        if (rtDn && shortOn && trendDn) found.push(["SHORT", "retest", slDist, tpDist, C.MAX_HOLD_CANDLES]);
+        if (rtUp && trendUp) found.push(["BELI", "retest", slDist, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
+        if (rtDn && shortOn && trendDn) found.push(["SHORT", "retest", slDist, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
       }
     }
 
@@ -213,7 +221,7 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
 
     // Satu sinyal per candle: setup pertama (urutan CONFIG.SETUPS) yang terpenuhi.
     const pick = found.sort((p, q) => setups.indexOf(p[1]) - setups.indexOf(q[1]))[0];
-    const [signal, setup, sl, tp, maxHold] = pick || ["TAHAN", null, slDist, tpDist, C.MAX_HOLD_CANDLES];
+    const [signal, setup, sl, tp, maxHold, breakevenAt] = pick || ["TAHAN", null, slDist, tpDist, C.MAX_HOLD_CANDLES, null];
     return {
       ...k, emaFast: emaFast[i], emaSlow: emaSlow[i], emaTrend: emaTrend[i], rsi: r[i], atr: a[i], adx: x[i],
       bbMid: bb ? bb.mean[i] : NaN, bbUpper: bb ? bbUp(i) : NaN, bbLower: bb ? bbLo(i) : NaN,
@@ -222,7 +230,7 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
       // Dipakai EXIT_ON_SELL_SIGNAL: tren kecil berbalik.
       crossUp: warm && emaFast[i] > emaSlow[i] && i > 0 && emaFast[i - 1] <= emaSlow[i - 1],
       crossDown: warm && emaFast[i] < emaSlow[i] && i > 0 && emaFast[i - 1] >= emaSlow[i - 1],
-      trend: trend ? trend[i] : null, signal, setup, maxHold,
+      trend: trend ? trend[i] : null, signal, setup, maxHold, breakevenAt: breakevenAt ?? null,
     };
   });
 }
@@ -256,7 +264,17 @@ export function simulate(rows, side, interval) {
       else if (hitTp) { exit = pos.tp; result = "TP"; }
       else if (C.EXIT_ON_SELL_SIGNAL && (long ? row.crossDown : row.crossUp)) { exit = row.close; result = "REVERSE"; }
       else if (held >= pos.maxHold) { exit = row.close; result = "WAKTU"; }
+      if (exit === null && pos.breakevenAt && !pos.breakeven) {
+        // Harga sudah jalan sekian bagian ke TP: SL digeser ke harga masuk + biaya (berlaku mulai candle berikutnya).
+        const fav = long ? row.high - pos.entry : pos.entry - row.low;
+        if (fav >= pos.breakevenAt * Math.abs(pos.tp - pos.entry)) {
+          const buf = C.BREAKEVEN_BUFFER_PERCENT / 100;
+          pos.sl = long ? pos.entry * (1 + buf) : pos.entry * (1 - buf);
+          pos.breakeven = true;
+        }
+      }
       if (exit !== null) {
+        if (result === "SL" && pos.breakeven) result = "BE";
         // Harga menyentuh level di antara buka dan tutup candle ini.
         trades.push({ ...pos, exit, result, ret: pnl(pos.entry, exit), hitFrom: row.time, hitTo: row.time + step });
         pos = null;
@@ -269,6 +287,7 @@ export function simulate(rows, side, interval) {
         side: long ? "LONG" : "SHORT", entry: row.close, entryTime: row.time + step,
         sl: long ? row.stopLoss : row.shortStopLoss, tp: long ? row.takeProfit : row.shortTakeProfit,
         setup: row.setup, maxHold: row.maxHold ?? C.MAX_HOLD_CANDLES,
+        breakevenAt: row.breakevenAt ?? null, breakeven: false, sl0: long ? row.stopLoss : row.shortStopLoss,
       };
     }
   }
@@ -527,7 +546,7 @@ export const baseAsset = (symbol) => symbol.replace(/USDT$/, "").replace(/^1000+
  */
 export function analyze(symbol, interval, candles, trendCandles = null) {
   const filter = usesFilter(interval) ? trendCandles : null;
-  const rows = addIndicators(candles, filter, filter ? C.MAX_STOP_LOSS_PERCENT : Infinity, setupsFor(interval));
+  const rows = addIndicators(candles, filter, filter ? C.MAX_STOP_LOSS_PERCENT : Infinity, setupsFor(interval), exitFor(interval));
   const result = { symbol, interval, rows, last: rows[rows.length - 1], sides: {} };
   for (const side of sides()) {
     const sim = simulate(rows, side, interval);
