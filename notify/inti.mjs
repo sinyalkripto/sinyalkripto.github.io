@@ -110,7 +110,7 @@ function lines(e) {
   const levels = [
     ["Harga masuk", fmtPrice(e.entry)],
     ["Take profit", `${fmtPrice(e.tp)} (${pct(e.tp)})`],
-    ["Stop loss", `${fmtPrice(e.sl)} (${pct(e.sl)})`],
+    ["Stop loss", `${fmtPrice(e.sl)} (${pct(e.sl)})${e.breakeven && e.type !== "SELESAI" ? ", sudah digeser ke harga masuk" : ""}`],
   ];
   if (e.type === "SELESAI") {
     return {
