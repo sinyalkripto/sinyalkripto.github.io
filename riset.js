@@ -1,6 +1,6 @@
 // Riset jumlah koin: ambil riwayat panjang untuk koin bervolume terbesar, jalankan strategi
 // yang sama (engine.js), lalu ringkas sinyal per hari, win rate, dan profit factor per kelompok koin.
-import { CONFIG, analyze, connect, isCryptoSymbol } from "./engine.js?v=11";
+import { CONFIG, SETUP_LABEL, analyze, connect, isCryptoSymbol } from "./engine.js?v=12";
 
 const DAYS = 180;              // jendela evaluasi
 const N_COINS = 100;           // kandidat koin teratas menurut volume
@@ -86,12 +86,15 @@ async function run() {
     for (let job = queue.shift(); job; job = queue.shift()) {
       try {
         const c1 = await history(src, job.s, "1h", DAYS * 24 + 300);
-        const c4 = await history(src, job.s, "4h", DAYS * 6 + 120);
+        const c4 = await history(src, job.s, "4h", DAYS * 6 + 300);
         if (c1.length < 600 || c4.length < 120) throw new Error("data terlalu pendek");
         const r = analyze(job.s, "1h", c1, c4);
-        const trades = ["long", "short"].flatMap((side) => r.sides[side].closed.map((x) => ({ t: x.entryTime, r: x.ret, s: side[0] })));
-        per[job.i] = { sym: job.s, rank: job.i + 1, start: c1[Math.min(c1.length - 1, 200)].time, trades };
-      } catch (e) { per[job.i] = { sym: job.s, rank: job.i + 1, error: String(e.message || e), trades: [] }; }
+        const trades = ["long", "short"].flatMap((side) => r.sides[side].closed.map((x) => ({ t: x.entryTime, r: x.ret, s: side[0], k: x.setup })));
+        // 4 jam: dianalisis tanpa filter tren di atasnya (sama seperti di situs).
+        const r4 = analyze(job.s, "4h", c4, null);
+        const trades4 = ["long", "short"].flatMap((side) => r4.sides[side].closed.map((x) => ({ t: x.entryTime, r: x.ret, s: side[0], k: x.setup })));
+        per[job.i] = { sym: job.s, rank: job.i + 1, start: c1[Math.min(c1.length - 1, 200)].time, trades, trades4 };
+      } catch (e) { per[job.i] = { sym: job.s, rank: job.i + 1, error: String(e.message || e), trades: [], trades4: [] }; }
       done++;
       $("#bar i").style.width = `${done / coins.length * 100}%`;
       status(`Mengambil data dan menguji ${done}/${coins.length} koin (${src.name})…`);
@@ -116,7 +119,17 @@ async function run() {
     allSecond: stats(per.flatMap((p) => p.trades), mid, to),
   };
 
-  RESULT = { at: new Date().toISOString(), source: src.name, days: DAYS, config: { TP: CONFIG.TAKE_PROFIT_ATR, SL: CONFIG.STOP_LOSS_ATR, ADX: CONFIG.ADX_MIN }, groups, wf,
+  // Per setup dan timeframe, untuk 40 koin teratas (sama dengan yang dipantau situs).
+  const top = per.slice(0, CONFIG.TOP_COINS);
+  const bySetup = [];
+  for (const [tf, key] of [["1h", "trades"], ["4h", "trades4"]]) {
+    const all = top.flatMap((p) => p[key]);
+    const kinds = [...new Set(all.map((x) => x.k))];
+    bySetup.push({ tf, k: "semua", all: stats(all, from, to), last30: stats(all, to - 30 * D, to), thirds: thirds.map(([a, b]) => stats(all, a, b)), cov: coverage(all, from, to) });
+    for (const k of kinds) { const tr = all.filter((x) => x.k === k); bySetup.push({ tf, k, all: stats(tr, from, to), last30: stats(tr, to - 30 * D, to), thirds: thirds.map(([a, b]) => stats(tr, a, b)), cov: coverage(tr, from, to) }); }
+  }
+
+  RESULT = { at: new Date().toISOString(), source: src.name, days: DAYS, config: { TP: CONFIG.TAKE_PROFIT_ATR, SL: CONFIG.STOP_LOSS_ATR, ADX: CONFIG.ADX_MIN }, groups, wf, bySetup,
     coins: per.map((p) => ({ sym: p.sym, rank: p.rank, error: p.error, ...stats(p.trades, from, to), recent30: stats(p.trades, to - 30 * D, to).n })) };
   render();
   $("#dl").disabled = false;
@@ -126,7 +139,15 @@ async function run() {
 function render() {
   const R = RESULT;
   const cls = (x, lim) => (x >= lim ? "up" : "down");
-  let h = `<h2>Per jumlah koin (urut volume)</h2><p>Sinyal per hari dihitung untuk semua koin di kelompok itu. PF di atas 1 berarti untung bersih setelah biaya. "Hari ada sinyal" = persentase hari dengan minimal 1 sinyal.</p>
+  let h = "";
+  if (R.bySetup) {
+    h += `<h2>Per setup (${CONFIG.TOP_COINS} koin teratas)</h2><p>Semua setup aktif di situs, timeframe 1 jam dan 4 jam. "Semua" = gabungan setup di timeframe itu.</p>
+    <div class="wrap"><table><tr><th>TF</th><th>Setup</th><th>Sinyal/hari</th><th>30 hari terakhir/hari</th><th>Hari ada sinyal</th><th>Win rate</th><th>PF</th><th>PF per 1/3 periode</th></tr>`;
+    for (const g of R.bySetup) h += `<tr><td>${g.tf === "1h" ? "1j" : "4j"}</td><td>${g.k === "semua" ? "<b>Semua</b>" : SETUP_LABEL[g.k] || g.k}</td><td>${g.all.perDay.toFixed(1)}</td><td>${g.last30.perDay.toFixed(1)}</td><td>${pct(g.cov.daysWith)}</td>
+      <td class="${cls(g.all.win, .6)}">${pct(g.all.win)}</td><td class="${cls(g.all.pf, 1)}">${f2(g.all.pf)}</td><td>${g.thirds.map((s) => f2(s.pf)).join(" / ")}</td></tr>`;
+    h += "</table></div>";
+  }
+  h += `<h2>Per jumlah koin (urut volume, 1 jam)</h2><p>Sinyal per hari dihitung untuk semua koin di kelompok itu. PF di atas 1 berarti untung bersih setelah biaya. "Hari ada sinyal" = persentase hari dengan minimal 1 sinyal.</p>
   <div class="wrap"><table><tr><th>Koin teratas</th><th>Sinyal</th><th>Sinyal/hari</th><th>30 hari terakhir/hari</th><th>Hari ada sinyal</th><th>Jeda terlama</th><th>Win rate</th><th>PF</th><th>PF per 1/3 periode</th></tr>`;
   for (const g of R.groups) h += `<tr><td>${g.n}</td><td>${g.all.n}</td><td>${g.all.perDay.toFixed(1)}</td><td>${g.last30.perDay.toFixed(1)}</td><td>${pct(g.cov.daysWith)}</td><td>${g.cov.maxGapH.toFixed(0)} jam</td>
     <td class="${cls(g.all.win, .6)}">${pct(g.all.win)}</td><td class="${cls(g.all.pf, 1)}">${f2(g.all.pf)}</td><td>${g.thirds.map((s) => f2(s.pf)).join(" / ")}</td></tr>`;
@@ -137,7 +158,7 @@ function render() {
   <h2>Per koin</h2><div class="wrap"><table><tr><th>#</th><th>Koin</th><th>Trade</th><th>Win rate</th><th>PF</th><th>Sinyal 30 hari</th></tr>`;
   for (const c of R.coins) h += `<tr><td>${c.rank}</td><td>${c.sym}${c.error ? ` <span class="down">(${c.error})</span>` : ""}</td><td>${c.n}</td><td>${c.n ? pct(c.win) : "–"}</td><td>${f2(c.pf)}</td><td>${c.recent30}</td></tr>`;
   $("#out").innerHTML = h + "</table></div>";
-  try { localStorage.setItem("riset.v1", JSON.stringify(RESULT)); } catch {}
+  try { localStorage.setItem("riset.v2", JSON.stringify(RESULT)); } catch {}
 }
 
 $("#go").addEventListener("click", () => run().catch((e) => { status(`Gagal: ${e.message || e}`); $("#go").disabled = false; }));
@@ -146,4 +167,4 @@ $("#dl").addEventListener("click", () => {
   a.href = URL.createObjectURL(new Blob([JSON.stringify(RESULT)], { type: "application/json" }));
   a.download = "riset-koin.json"; a.click();
 });
-try { const old = JSON.parse(localStorage.getItem("riset.v1")); if (old) { RESULT = old; render(); $("#dl").disabled = false; status(`Hasil terakhir (${old.at}). Tekan Mulai untuk mengulang.`); } } catch {}
+try { const old = JSON.parse(localStorage.getItem("riset.v2")); if (old) { RESULT = old; render(); $("#dl").disabled = false; status(`Hasil terakhir (${old.at}). Tekan Mulai untuk mengulang.`); } } catch {}

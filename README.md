@@ -3,7 +3,7 @@
 Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 40 koin teratas
 Binance Futures.
 
-## Strategi: pullback searah tren
+## Strategi: pullback searah tren (+ breakout-retest di 1 jam, range di 4 jam)
 
 - **Tren harus jelas:** tren 4 jam naik (EMA 20 > EMA 50 di 4 jam), di timeframe itu EMA 20 > EMA 50
   dan harga di atas EMA 200, dan ADX 14 minimal 20 (bukan pasar sideways). Short kebalikannya.
@@ -43,6 +43,46 @@ Menambah koin menambah sinyal dengan win rate tetap sekitar 70%, tapi profit fac
 (impas setelah biaya) dan sepertiga terakhir di bawah 1 untuk semua kelompok. Memilih koin dari hasil
 paruh pertama tidak membantu di paruh kedua (PF 0,98 vs 0,98), jadi koin dipilih menurut volume saja.
 Situs memantau 40 koin kripto teratas (token saham seperti NVDAB/TSLAB tidak ikut).
+
+## Riset Nov 2026: lebih banyak sinyal di 1 jam dan 4 jam
+
+Kenapa jarang: setup pullback butuh 5 syarat sekaligus (tren 4 jam, EMA 20/50, EMA 200, ADX >= 20, RSI
+menyeberang 40/60 tepat di satu candle). Di 4 jam hanya ada 6 candle per hari per koin, jadi kejadiannya
+langka. Posisi juga cepat selesai (TP 1 ATR), jadi "sinyal aktif" cuma terlihat beberapa jam.
+
+Diuji 6 setup + filter di data 18 koin, 25 Apr–22 Okt 2026 (biaya 0,05% per transaksi, kalau TP dan SL
+kena di candle yang sama dihitung SL). Penilaian: 120 hari pertama untuk memilih, 60 hari terakhir
+untuk menguji (out-of-sample).
+
+| Setup | TF | Sinyal/hari (18 koin) | Win rate | PF | PF 60 hari terakhir | Dipakai |
+|---|---|---|---|---|---|---|
+| Pullback (lama) | 1j | 1,6 | 71,7% | 1,11 | 1,19 | ya |
+| Breakout-retest (high/low 20 candle) | 1j | 4,6 | 72,6% | 1,24 | 1,32 | **ya, baru** |
+| Pantulan EMA 20 | 1j | 4,4 | 64,1% | 0,79 | – | tidak |
+| RSI 2 (Connors) | 1j | 11,2 | 69,2% | 1,03 | <1 | tidak |
+| Range / Bollinger | 1j | 1,5 | 48,3% | 0,78 | <1 | tidak |
+| Pullback (lama) | 4j | 0,3 | 65,6% | 1,04 | – | ya |
+| Range / Bollinger (ADX < 25) | 4j | 0,3 | 75,0% | 1,94 | >1 | **ya, baru** |
+| Breakout-retest | 4j | 1,5 | 66–68% | ±1,0 | 0,6–0,9 | tidak (rugi di 60 hari terakhir) |
+
+Breakout-retest di 1 jam stabil: 80% dari 270 kombinasi parameter tetap PF > 1 di 60 hari terakhir,
+long dan short sama-sama untung, 4 dari 6 bulan PF > 1. Filter tren 4 jam penting (tanpa itu PF turun
+ke ±1). Filter volume breakout tidak konsisten, jadi tidak dipakai.
+
+Hasil gabungan (mesin di situs, 18 koin):
+
+| TF | Sinyal/hari | Hari ada sinyal | Jam dengan posisi terbuka | Win rate | PF per 1/3 periode |
+|---|---|---|---|---|---|
+| 1j lama | 1,6 | 63% | 34% | 71,7% | 1,09 / 1,16 / 1,09 |
+| 1j baru | 6,5 | 98% | 71% | 72,3% | 1,08 / 1,36 / 1,24 |
+| 4j lama | 0,4 | 26% | 31% | 65,6% | 0,78 / 1,11 / 1,23 |
+| 4j baru | 0,75 | 40% | 41% | 69,7% | 1,20 / 1,25 / 1,39 |
+
+Dengan 40 koin angkanya kira-kira 2,2 kali (1j ±14 sinyal/hari, 4j ±1,7 sinyal/hari). 1 jam praktis
+selalu ada sinyal tiap hari. 4 jam belum bisa dijamin tiap hari tanpa merusak edge: setup yang
+menambah banyak sinyal 4 jam (breakout-retest, RSI 2, pantulan EMA) rugi di 60 hari terakhir.
+Sampel range 4 jam masih kecil (48 trade), jadi pantau di `riset.html` (sekarang juga menguji 4 jam
+dan memecah hasil per setup).
 
 ## Di situs
 

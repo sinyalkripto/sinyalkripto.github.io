@@ -1,6 +1,6 @@
 import {
-  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter,
-} from "./engine.js?v=11";
+  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, SETUP_LABEL, setupsFor,
+} from "./engine.js?v=12";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
 const $ = (s) => document.querySelector(s);
@@ -499,7 +499,7 @@ function card(t, mode) {
     : `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button><a class="btn-s ghost" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>`;
   const short = hit ? (hit === "TP" ? "Kena TP" : "Kena SL") : st.cls === "ok" ? "Berlaku" : st.cls === "warn" ? "Lewat jam" : "Kedaluwarsa";
   return `<div class="tile">
-      <div class="tile-head">${logo(t.sym)}<div class="tile-id"><span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span></span><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]} · ${fmtClock(t.entryTime)} WIB</span></div><span class="tag ${st.cls}" title="${esc(st.text)}">${short}</span></div>
+      <div class="tile-head">${logo(t.sym)}<div class="tile-id"><span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span></span><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]}${t.setup ? ` · ${SETUP_LABEL[t.setup]}` : ""} · ${fmtClock(t.entryTime)} WIB</span></div><span class="tag ${st.cls}" title="${esc(st.text)}">${short}</span></div>
       <div class="tile-pl ${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</div>
       <div class="muted pg-sub">harga ${fmtPrice(p)}</div>
       <div class="pbar" role="img" aria-label="Harga sekarang ${pnl >= 0 ? `${Math.round(toTp * 100)}% menuju take profit` : `${Math.round(toSl * 100)}% menuju stop loss`}">
@@ -620,7 +620,7 @@ function renderWhy(trades, nActive) {
   const rows = Object.keys(S.res).map((sym) => ({ sym, r: S.res[sym][tf] })).filter((x) => x.r?.last);
   // Dibuka otomatis sekali saat data pertama siap dan tidak ada sinyal aktif; setelah itu ikut pilihan pengguna.
   if (!S.whyInit && rows.length) { S.whyInit = true; $("#why-box").open = !nActive; }
-  $("#why-sub").textContent = `Timeframe ${TF_LABEL[tf]}, dari candle terakhir yang sudah tutup. Sinyal butuh semua syarat ini sekaligus: tren 4 jam dan tren di timeframe ini searah, ADX minimal ${CONFIG.ADX_MIN} (pasar bertren, bukan sideways), lalu RSI balik arah lewat ${CONFIG.RSI_PULLBACK_LONG} (long) atau ${CONFIG.RSI_PULLBACK_SHORT} (short). Syarat ini sengaja ketat, jadi wajar kalau berjam-jam atau 1–3 hari tidak ada sinyal.`;
+  $("#why-sub").textContent = `Timeframe ${TF_LABEL[tf]}, dari candle terakhir yang sudah tutup. Sinyal butuh semua syarat ini sekaligus: tren 4 jam dan tren di timeframe ini searah, ADX minimal ${CONFIG.ADX_MIN} (pasar bertren, bukan sideways), lalu RSI balik arah lewat ${CONFIG.RSI_PULLBACK_LONG} (long) atau ${CONFIG.RSI_PULLBACK_SHORT} (short). Tabel di bawah menunjukkan syarat setup pullback.${setupsFor(tf).includes("retest") ? " Selain itu ada setup breakout-retest: harga menembus high/low 20 candle, lalu balik menguji level itu dan tutup lagi searah breakout (tren dan ADX sama seperti di atas)." : ""}${setupsFor(tf).includes("range") ? ` Saat pasar sideways (ADX di bawah ${CONFIG.RANGE_ADX_MAX}) ada setup range: harga tutup kembali ke dalam Bollinger Band setelah keluar dengan RSI ekstrem, target garis tengah band.` : ""}`;
   const label = (v) => v === "naik" ? `<span class="up">Naik</span>` : v === "turun" ? `<span class="down">Turun</span>` : `<span class="muted">Campur</span>`;
   const list = rows.map(({ sym, r }) => {
     const l = r.last, usesT = l.trend != null;
