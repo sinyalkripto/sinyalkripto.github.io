@@ -35,6 +35,28 @@ export const CONFIG = {
   MAX_STOP_LOSS_PERCENT: 8,
   // Posisi yang belum kena TP/SL ditutup setelah sekian candle.
   MAX_HOLD_CANDLES: 48,
+  // Setup yang dipakai per timeframe (urutan = prioritas kalau dua setup muncul di candle yang sama).
+  // Riset Nov 2026 (README): breakout-retest menambah ±3x sinyal 1 jam dengan win rate dan PF yang sama
+  // atau lebih baik; range (mean reversion) menambah sinyal 4 jam. Timeframe lain tetap pullback saja.
+  SETUPS: { "1h": ["pullback", "retest"], "4h": ["pullback", "range"] },
+  DEFAULT_SETUPS: ["pullback"],
+  // Breakout-retest: harga tutup menembus high/low 20 candle sebelumnya, lalu dalam 12 candle balik
+  // menyentuh level yang ditembus (toleransi 0,25 ATR) dan tutup lagi di sisi breakout dengan candle searah.
+  // Syarat tren sama dengan pullback (EMA 20/50, tren 4 jam, ADX), TP 1 ATR, SL 2 ATR.
+  RETEST_LOOKBACK: 20,
+  RETEST_WINDOW: 12,
+  RETEST_TOLERANCE_ATR: 0.25,
+  // Range: pasar sideways (ADX < 25), candle sebelumnya tutup di luar Bollinger Band (20, 2) dengan
+  // RSI ekstrem (< 30 / > 70), lalu candle ini tutup kembali di dalam band. TP di garis tengah band
+  // (maksimal 1 ATR), SL 1,5 ATR, ditutup paksa setelah 12 candle.
+  RANGE_ADX_MAX: 25,
+  BB_PERIOD: 20,
+  BB_STD: 2,
+  RANGE_RSI_LONG: 30,
+  RANGE_RSI_SHORT: 70,
+  RANGE_STOP_LOSS_ATR: 1.5,
+  RANGE_TAKE_PROFIT_ATR: 1.0,
+  RANGE_MAX_HOLD: 12,
   EXIT_ON_SELL_SIGNAL: false,
   FEE_PERCENT: 0.05,
 };
@@ -108,42 +130,99 @@ export function alignTrend(candles, trendCandles) {
   return out;
 }
 
+/** Nama setup untuk tampilan. */
+export const SETUP_LABEL = { pullback: "Pullback", retest: "Breakout-retest", range: "Range" };
+export const setupsFor = (interval) => C.SETUPS[interval] || C.DEFAULT_SETUPS;
+
+/** Rata-rata dan simpangan baku bergulir (populasi), NaN sebelum cukup data. */
+function rolling(values, period) {
+  const mean = new Array(values.length).fill(NaN), sd = new Array(values.length).fill(NaN);
+  for (let i = period - 1; i < values.length; i++) {
+    let s = 0, q = 0;
+    for (let j = i - period + 1; j <= i; j++) { s += values[j]; q += values[j] * values[j]; }
+    const m = s / period;
+    mean[i] = m; sd[i] = Math.sqrt(Math.max(0, q / period - m * m));
+  }
+  return { mean, sd };
+}
+
 /**
  * candles: [{time(ms, open time), open, high, low, close, volume}] candle yang sudah close.
- * Sinyal LONG ("BELI"): tren 4 jam naik, EMA 20 > EMA 50, harga di atas EMA 200, ADX >= 20,
- * dan RSI baru naik kembali menembus 40 (koreksi selesai). SHORT kebalikannya (RSI turun menembus 60).
+ * Setup (CONFIG.SETUPS, per timeframe):
+ * - pullback: tren naik (EMA 20 > EMA 50, harga di atas EMA 200, tren 4 jam naik, ADX >= 20), lalu RSI
+ *   naik kembali menembus 40 (koreksi selesai). SHORT kebalikannya (RSI turun menembus 60).
+ * - retest: breakout high 20 candle, lalu retest level itu (lihat CONFIG.RETEST_*), searah tren.
+ * - range: pantulan dari luar Bollinger Band saat pasar sideways (lihat CONFIG.RANGE_*).
+ * Tiap baris membawa SL/TP dan batas lama posisi milik setup yang memicu sinyal di baris itu.
  */
-export function addIndicators(candles, trendCandles = null, maxSlPercent = trendCandles ? C.MAX_STOP_LOSS_PERCENT : Infinity) {
+export function addIndicators(candles, trendCandles = null, maxSlPercent = trendCandles ? C.MAX_STOP_LOSS_PERCENT : Infinity, setups = C.DEFAULT_SETUPS) {
   const close = candles.map((k) => k.close);
   const emaFast = ema(close, C.EMA_FAST), emaSlow = ema(close, C.EMA_SLOW), emaTrend = ema(close, C.EMA_TREND);
   const r = rsi(close, C.RSI_PERIOD), a = atr(candles, C.ATR_PERIOD), x = adx(candles, C.ADX_PERIOD).adx;
   const trend = trendCandles ? alignTrend(candles, trendCandles) : null;
   const shortOn = C.ENABLE_SHORT;
+  const useRetest = setups.includes("retest"), useRange = setups.includes("range");
+  const bb = useRange ? rolling(close, C.BB_PERIOD) : null;
+  const bbUp = (i) => bb.mean[i] + C.BB_STD * bb.sd[i], bbLo = (i) => bb.mean[i] - C.BB_STD * bb.sd[i];
+  // Status breakout untuk setup retest: level yang ditembus dan candle tempat breakout terjadi.
+  let upLevel = NaN, upAt = -Infinity, dnLevel = NaN, dnAt = -Infinity;
+  const N = C.RETEST_LOOKBACK;
   return candles.map((k, i) => {
-    const slDist = C.STOP_LOSS_ATR * a[i];
-    const tpDist = C.TAKE_PROFIT_ATR * a[i];
     const warm = i >= C.EMA_TREND && i > 0;
     const strong = x[i] >= C.ADX_MIN;
-    const bigEnough = tpDist / k.close * 100 >= C.MIN_TAKE_PROFIT_PERCENT;
-    const upTrend = emaFast[i] > emaSlow[i] && k.close > emaTrend[i] && (!trend || trend[i] === "naik");
-    const downTrend = emaFast[i] < emaSlow[i] && k.close < emaTrend[i] && (!trend || trend[i] === "turun");
-    const rsiUp = r[i - 1] < C.RSI_PULLBACK_LONG && r[i] >= C.RSI_PULLBACK_LONG;
-    const rsiDown = r[i - 1] > C.RSI_PULLBACK_SHORT && r[i] <= C.RSI_PULLBACK_SHORT;
-    const sane = slDist / k.close * 100 <= maxSlPercent;
-    const ok = warm && strong && bigEnough && sane;
-    const buy = ok && upTrend && rsiUp;
-    const short = ok && shortOn && downTrend && rsiDown;
-    let signal = "TAHAN";
-    if (buy) signal = "BELI";
-    if (short) signal = "SHORT";
+    const trendUp = emaFast[i] > emaSlow[i] && (!trend || trend[i] === "naik");
+    const trendDn = emaFast[i] < emaSlow[i] && (!trend || trend[i] === "turun");
+    const sane = (d) => d / k.close * 100 <= maxSlPercent;
+    const big = (d) => d / k.close * 100 >= C.MIN_TAKE_PROFIT_PERCENT;
+    const found = [];
+
+    // 1) Pullback searah tren.
+    const slDist = C.STOP_LOSS_ATR * a[i], tpDist = C.TAKE_PROFIT_ATR * a[i];
+    if (setups.includes("pullback") && warm && strong && big(tpDist) && sane(slDist)) {
+      if (trendUp && k.close > emaTrend[i] && r[i - 1] < C.RSI_PULLBACK_LONG && r[i] >= C.RSI_PULLBACK_LONG) found.push(["BELI", "pullback", slDist, tpDist, C.MAX_HOLD_CANDLES]);
+      if (shortOn && trendDn && k.close < emaTrend[i] && r[i - 1] > C.RSI_PULLBACK_SHORT && r[i] <= C.RSI_PULLBACK_SHORT) found.push(["SHORT", "pullback", slDist, tpDist, C.MAX_HOLD_CANDLES]);
+    }
+
+    // 2) Breakout-retest.
+    if (useRetest && i >= N) {
+      let hh = -Infinity, ll = Infinity;
+      for (let j = i - N; j < i; j++) { hh = Math.max(hh, candles[j].high); ll = Math.min(ll, candles[j].low); }
+      const brkUp = k.close > hh, brkDn = k.close < ll;
+      let rtUp = false, rtDn = false;
+      const tol = C.RETEST_TOLERANCE_ATR * a[i];
+      if (!brkUp && i - upAt >= 1 && i - upAt <= C.RETEST_WINDOW && k.low <= upLevel + tol && k.close > upLevel && k.close > k.open) { rtUp = true; upAt = -Infinity; }
+      if (!brkDn && i - dnAt >= 1 && i - dnAt <= C.RETEST_WINDOW && k.high >= dnLevel - tol && k.close < dnLevel && k.close < k.open) { rtDn = true; dnAt = -Infinity; }
+      if (brkUp) { upLevel = hh; upAt = i; }
+      if (brkDn) { dnLevel = ll; dnAt = i; }
+      if (warm && strong && big(tpDist) && sane(slDist)) {
+        if (rtUp && trendUp) found.push(["BELI", "retest", slDist, tpDist, C.MAX_HOLD_CANDLES]);
+        if (rtDn && shortOn && trendDn) found.push(["SHORT", "retest", slDist, tpDist, C.MAX_HOLD_CANDLES]);
+      }
+    }
+
+    // 3) Range (mean reversion) saat sideways.
+    if (useRange && warm && i >= C.BB_PERIOD && x[i] < C.RANGE_ADX_MAX) {
+      const mid = bb.mean[i], prev = candles[i - 1].close;
+      const sl = C.RANGE_STOP_LOSS_ATR * a[i];
+      const tp = Math.min(Math.abs(mid - k.close), C.RANGE_TAKE_PROFIT_ATR * a[i]);
+      if (big(tp) && sane(sl)) {
+        if (prev < bbLo(i - 1) && k.close > bbLo(i) && r[i - 1] < C.RANGE_RSI_LONG && mid > k.close) found.push(["BELI", "range", sl, tp, C.RANGE_MAX_HOLD]);
+        if (shortOn && prev > bbUp(i - 1) && k.close < bbUp(i) && r[i - 1] > C.RANGE_RSI_SHORT && mid < k.close) found.push(["SHORT", "range", sl, tp, C.RANGE_MAX_HOLD]);
+      }
+    }
+
+    // Satu sinyal per candle: setup pertama (urutan CONFIG.SETUPS) yang terpenuhi.
+    const pick = found.sort((p, q) => setups.indexOf(p[1]) - setups.indexOf(q[1]))[0];
+    const [signal, setup, sl, tp, maxHold] = pick || ["TAHAN", null, slDist, tpDist, C.MAX_HOLD_CANDLES];
     return {
       ...k, emaFast: emaFast[i], emaSlow: emaSlow[i], emaTrend: emaTrend[i], rsi: r[i], atr: a[i], adx: x[i],
-      stopLoss: k.close - slDist, takeProfit: k.close + tpDist,
-      shortStopLoss: k.close + slDist, shortTakeProfit: k.close - tpDist,
+      bbMid: bb ? bb.mean[i] : NaN, bbUpper: bb ? bbUp(i) : NaN, bbLower: bb ? bbLo(i) : NaN,
+      stopLoss: k.close - sl, takeProfit: k.close + tp,
+      shortStopLoss: k.close + sl, shortTakeProfit: k.close - tp,
       // Dipakai EXIT_ON_SELL_SIGNAL: tren kecil berbalik.
       crossUp: warm && emaFast[i] > emaSlow[i] && i > 0 && emaFast[i - 1] <= emaSlow[i - 1],
       crossDown: warm && emaFast[i] < emaSlow[i] && i > 0 && emaFast[i - 1] >= emaSlow[i - 1],
-      trend: trend ? trend[i] : null, signal,
+      trend: trend ? trend[i] : null, signal, setup, maxHold,
     };
   });
 }
@@ -176,7 +255,7 @@ export function simulate(rows, side, interval) {
       if (hitSl) { exit = pos.sl; result = "SL"; }
       else if (hitTp) { exit = pos.tp; result = "TP"; }
       else if (C.EXIT_ON_SELL_SIGNAL && (long ? row.crossDown : row.crossUp)) { exit = row.close; result = "REVERSE"; }
-      else if (held >= C.MAX_HOLD_CANDLES) { exit = row.close; result = "WAKTU"; }
+      else if (held >= pos.maxHold) { exit = row.close; result = "WAKTU"; }
       if (exit !== null) {
         // Harga menyentuh level di antara buka dan tutup candle ini.
         trades.push({ ...pos, exit, result, ret: pnl(pos.entry, exit), hitFrom: row.time, hitTo: row.time + step });
@@ -189,6 +268,7 @@ export function simulate(rows, side, interval) {
       pos = {
         side: long ? "LONG" : "SHORT", entry: row.close, entryTime: row.time + step,
         sl: long ? row.stopLoss : row.shortStopLoss, tp: long ? row.takeProfit : row.shortTakeProfit,
+        setup: row.setup, maxHold: row.maxHold ?? C.MAX_HOLD_CANDLES,
       };
     }
   }
@@ -446,7 +526,8 @@ export const baseAsset = (symbol) => symbol.replace(/USDT$/, "").replace(/^1000+
  * hasil backtest, dan perkiraan waktu TP. trendCandles wajib jika usesFilter(interval).
  */
 export function analyze(symbol, interval, candles, trendCandles = null) {
-  const rows = addIndicators(candles, usesFilter(interval) ? trendCandles : null);
+  const filter = usesFilter(interval) ? trendCandles : null;
+  const rows = addIndicators(candles, filter, filter ? C.MAX_STOP_LOSS_PERCENT : Infinity, setupsFor(interval));
   const result = { symbol, interval, rows, last: rows[rows.length - 1], sides: {} };
   for (const side of sides()) {
     const sim = simulate(rows, side, interval);
