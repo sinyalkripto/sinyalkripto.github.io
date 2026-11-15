@@ -1,6 +1,6 @@
 # Titik Masuk
 
-Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 40 koin teratas
+Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 20 koin teratas
 Binance Futures.
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam, range di 4 jam)
@@ -42,7 +42,7 @@ supaya win rate di atas 60%.
 Menambah koin menambah sinyal dengan win rate tetap sekitar 70%, tapi profit factor di sekitar 1
 (impas setelah biaya) dan sepertiga terakhir di bawah 1 untuk semua kelompok. Memilih koin dari hasil
 paruh pertama tidak membantu di paruh kedua (PF 0,98 vs 0,98), jadi koin dipilih menurut volume saja.
-Situs memantau 40 koin kripto teratas (token saham seperti NVDAB/TSLAB tidak ikut).
+Situs sempat memantau 40 koin (sekarang 20, lihat tahap 3) kripto teratas (token saham seperti NVDAB/TSLAB tidak ikut).
 
 ## Riset Nov 2026: lebih banyak sinyal di 1 jam dan 4 jam
 
@@ -101,6 +101,12 @@ Sekitarnya stabil (TP 1,25–1,75, breakeven 40–60% semua PF 1,06–1,38). Fil
 20% sinyal tanpa perbaikan di periode uji, dan merusak 4 jam. Breakeven di 4 jam juga merusak, jadi 4 jam
 tidak berubah. Catatan: Oktober tetap lemah di semua varian (PF 0,8–0,9); "Impas" dihitung sebagai trade
 untung kecil, jadi sebagian kenaikan win rate berasal dari situ.
+
+### Tahap 3: kembali ke 20 koin teratas
+
+Riset 40 koin setelah tahap 2: win rate 1 jam naik ke 75%, tapi PF tetap 1,09 (30 hari terakhir 0,82).
+Di dua kali riset, 20 koin teratas selalu paling bagus: PF 1,16 lalu 1,25, 30 hari terakhir 0,97 (40 koin
+0,82), dengan tetap ±8 sinyal 1 jam per hari dan sinyal di 99% hari. Jadi situs memantau 20 koin teratas.
 
 ## Di situs
 
