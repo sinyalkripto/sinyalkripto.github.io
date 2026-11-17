@@ -1,6 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, SETUP_LABEL, setupsFor, exitFor,
-} from "./engine.js?v=14";
+} from "./engine.js?v=15";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
 const $ = (s) => document.querySelector(s);
@@ -621,7 +621,7 @@ function renderWhy(trades, nActive) {
   const rows = Object.keys(S.res).map((sym) => ({ sym, r: S.res[sym][tf] })).filter((x) => x.r?.last);
   // Dibuka otomatis sekali saat data pertama siap dan tidak ada sinyal aktif; setelah itu ikut pilihan pengguna.
   if (!S.whyInit && rows.length) { S.whyInit = true; $("#why-box").open = !nActive; }
-  $("#why-sub").textContent = `Timeframe ${TF_LABEL[tf]}, dari candle terakhir yang sudah tutup. Sinyal butuh semua syarat ini sekaligus: tren 4 jam dan tren di timeframe ini searah, ADX minimal ${CONFIG.ADX_MIN} (pasar bertren, bukan sideways), lalu RSI balik arah lewat ${CONFIG.RSI_PULLBACK_LONG} (long) atau ${CONFIG.RSI_PULLBACK_SHORT} (short). Tabel di bawah menunjukkan syarat setup pullback.${setupsFor(tf).includes("retest") ? " Selain itu ada setup breakout-retest: harga menembus high/low 20 candle, lalu balik menguji level itu dan tutup lagi searah breakout (tren dan ADX sama seperti di atas)." : ""}${setupsFor(tf).includes("range") ? ` Saat pasar sideways (ADX di bawah ${CONFIG.RANGE_ADX_MAX}) ada setup range: harga tutup kembali ke dalam Bollinger Band setelah keluar dengan RSI ekstrem, target garis tengah band.` : ""}`;
+  $("#why-sub").textContent = `Timeframe ${TF_LABEL[tf]}, dari candle terakhir yang sudah tutup. Sinyal butuh semua syarat ini sekaligus: tren 4 jam dan tren di timeframe ini searah${CONFIG.TREND_EMA200_4H?.[tf] ? " (di 4 jam harga juga harus di sisi yang sama dari EMA 200)" : ""}, ADX minimal ${CONFIG.ADX_MIN} (pasar bertren, bukan sideways), lalu RSI balik arah lewat ${CONFIG.RSI_PULLBACK_LONG} (long) atau ${CONFIG.RSI_PULLBACK_SHORT} (short). Tabel di bawah menunjukkan syarat setup pullback.${setupsFor(tf).includes("retest") ? " Selain itu ada setup breakout-retest: harga menembus high/low 20 candle, lalu balik menguji level itu dan tutup lagi searah breakout (tren dan ADX sama seperti di atas)." : ""}${setupsFor(tf).includes("range") ? ` Saat pasar sideways (ADX di bawah ${CONFIG.RANGE_ADX_MAX}) ada setup range: harga tutup kembali ke dalam Bollinger Band setelah keluar dengan RSI ekstrem, target garis tengah band.` : ""}`;
   const label = (v) => v === "naik" ? `<span class="up">Naik</span>` : v === "turun" ? `<span class="down">Turun</span>` : `<span class="muted">Campur</span>`;
   const list = rows.map(({ sym, r }) => {
     const l = r.last, usesT = l.trend != null;

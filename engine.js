@@ -3,12 +3,22 @@
 // dari API publik Binance Futures (USDT-M) oleh browser pengunjung, tanpa server dan tanpa API key.
 
 export const CONFIG = {
-  TOP_COINS: 40, // riset 180 hari (riset.html): 40 koin ≈ 4 sinyal 1 jam per hari, win ±70%
+  // Riset Nov 2026 (README, data Binance Futures Des 2025–Nov 2026): 60 koin ≈ 22 sinyal 1 jam per hari
+  // dengan exit dan filter di bawah; 40 koin ≈ 17 sinyal/hari dengan aturan lama.
+  TOP_COINS: 60,
   // Selalu ikut dianalisis di luar top koin (emas).
   EXTRA_SYMBOLS: ["XAUUSDT"],
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
     "AEURUSDT", "USD1USDT", "XUSDUSDT", "BFUSDUSDT", "RLUSDUSDT", "USDEUSDT",
     "PAXGUSDT", "XAUTUSDT", "WBTCUSDT", "SPCXBUSDT", "SNDKBUSDT", "UUSDT"],
+  // Kontrak saham, ETF, dan komoditas di Binance Futures yang namanya tidak berakhiran B (jadi lolos filter
+  // token saham). Banyak yang masuk 60 besar volume (Nov 2026). Tidak ikut dipantau.
+  TRADFI: ["SOXLUSDT", "SNDKUSDT", "SKHYNIXUSDT", "SPCXUSDT", "CLUSDT", "KORUUSDT", "XAGUSDT", "MUUSDT",
+    "BZUSDT", "SKHYUSDT", "SNXXUSDT", "MSTRUSDT", "INTCUSDT", "CRCLUSDT", "GOOGLUSDT", "TSLAUSDT",
+    "SAMSUNGUSDT", "QQQUSDT", "DRAMUSDT", "EWYUSDT", "SPYUSDT", "MUUUSDT", "MRVLUSDT", "NBISUSDT", "AMDUSDT",
+    "METAUSDT", "TQQQUSDT", "NATGASUSDT", "AAPLUSDT", "AAOIUSDT", "CBRSUSDT", "CRWVUSDT", "WDCUSDT",
+    "AXTIUSDT", "INTWUSDT", "ZHIPUUSDT", "UNITREEUSDT", "MVLLUSDT", "COINUSDT", "HOODUSDT", "AMZNUSDT",
+    "MSFTUSDT", "PLTRUSDT", "ORCLUSDT", "AVGOUSDT", "TSMUSDT", "NFLXUSDT", "BABAUSDT", "SMCIUSDT", "ARMUSDT"],
   // Daftar blokir: koin yang secara konsisten kena stop loss di sinyal live (catatan pengguna, Nov 2026).
   // Tidak dianalisis dan tidak muncul di situs. Tambah atau hapus nama simbol di sini (format XXXUSDT).
   // NVDAUSDT dan SOXSUSDT adalah token saham/ETF, bukan kripto, dan sebelumnya lolos dari filter token saham.
@@ -42,11 +52,18 @@ export const CONFIG = {
   // Setup yang dipakai per timeframe (urutan = prioritas kalau dua setup muncul di candle yang sama).
   // Riset Nov 2026 (README): breakout-retest menambah ±3x sinyal 1 jam dengan win rate dan PF yang sama
   // atau lebih baik; range (mean reversion) menambah sinyal 4 jam. Timeframe lain tetap pullback saja.
-  SETUPS: { "1h": ["pullback", "retest"], "4h": ["pullback", "range"] },
+  // Range 4 jam dimatikan (riset Nov 2026 tahap 3): di data 12 bulan PF 1,01 dan 0,62 di 3,5 bulan terakhir
+  // (sampel lama hanya 48 trade). Kodenya tetap ada kalau ingin diuji lagi.
+  SETUPS: { "1h": ["pullback", "retest"], "4h": ["pullback"] },
   // Exit per timeframe untuk pullback dan retest (default: TAKE_PROFIT_ATR / STOP_LOSS_ATR, tanpa breakeven).
   // 1 jam (riset Nov 2026): TP 1,5 ATR, SL 2 ATR, dan SL digeser ke harga masuk (+ biaya) begitu harga sudah
   // jalan setengah jarak ke TP. PF naik dari 1,21 ke 1,26 dengan sinyal sedikit lebih banyak; win rate ±76%.
-  EXITS: { "1h": { tp: 1.5, sl: 2, breakevenAt: 0.5 } },
+  // Riset Nov 2026 tahap 3 (data 46 + 71 koin, Des 2025–Nov 2026): TP 1,25 ATR dan breakeven di 40% menaikkan
+  // win rate 1 jam dari ±76% ke ±83% di periode uji dengan profit factor sedikit lebih baik.
+  EXITS: { "1h": { tp: 1.25, sl: 2, breakevenAt: 0.4 } },
+  // Filter tambahan per timeframe: tren 4 jam juga harus searah EMA 200 4 jam (harga 4 jam di atas EMA 200
+  // untuk long, di bawah untuk short). Membuang ±12% sinyal 1 jam yang paling lemah.
+  TREND_EMA200_4H: { "1h": true },
   // Jarak SL baru dari harga masuk setelah breakeven (menutup biaya buka + tutup).
   BREAKEVEN_BUFFER_PERCENT: 0.12,
   DEFAULT_SETUPS: ["pullback"],
@@ -126,16 +143,16 @@ export function adx(candles, period = 14) {
 // ---------- Sinyal ----------
 
 /** Tren per candle dari timeframe besar, hanya memakai candle tren yang sudah close. */
-export function alignTrend(candles, trendCandles) {
+export function alignTrend(candles, trendCandles, ema200 = false) {
   const tc = trendCandles.map((k) => k.close);
-  const fast = ema(tc, C.EMA_FAST), slow = ema(tc, C.EMA_SLOW);
+  const fast = ema(tc, C.EMA_FAST), slow = ema(tc, C.EMA_SLOW), long = ema200 ? ema(tc, C.EMA_TREND) : null;
   const diffs = trendCandles.slice(1).map((k, i) => k.time - trendCandles[i].time).sort((a, b) => a - b);
   const step = diffs.length ? diffs[Math.floor((diffs.length - 1) / 2)] : 0;
   const out = new Array(candles.length).fill(null);
   let j = -1;
   for (let i = 0; i < candles.length; i++) {
     while (j + 1 < trendCandles.length && trendCandles[j + 1].time + step <= candles[i].time) j++;
-    if (j >= 0) out[i] = fast[j] > slow[j] ? "naik" : "turun";
+    if (j >= 0) out[i] = fast[j] > slow[j] ? (!long || tc[j] > long[j] ? "naik" : "netral") : (!long || tc[j] < long[j] ? "turun" : "netral");
   }
   return out;
 }
@@ -144,7 +161,7 @@ export function alignTrend(candles, trendCandles) {
 export const SETUP_LABEL = { pullback: "Pullback", retest: "Breakout-retest", range: "Range" };
 export const setupsFor = (interval) => C.SETUPS[interval] || C.DEFAULT_SETUPS;
 /** Aturan exit pullback/retest per timeframe: {tp, sl (kelipatan ATR), breakevenAt (bagian jarak TP) atau null}. */
-export const exitFor = (interval) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}) });
+export const exitFor = (interval) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), trend200: !!C.TREND_EMA200_4H?.[interval] });
 
 /** Rata-rata dan simpangan baku bergulir (populasi), NaN sebelum cukup data. */
 function rolling(values, period) {
@@ -171,7 +188,7 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
   const close = candles.map((k) => k.close);
   const emaFast = ema(close, C.EMA_FAST), emaSlow = ema(close, C.EMA_SLOW), emaTrend = ema(close, C.EMA_TREND);
   const r = rsi(close, C.RSI_PERIOD), a = atr(candles, C.ATR_PERIOD), x = adx(candles, C.ADX_PERIOD).adx;
-  const trend = trendCandles ? alignTrend(candles, trendCandles) : null;
+  const trend = trendCandles ? alignTrend(candles, trendCandles, exit.trend200) : null;
   const shortOn = C.ENABLE_SHORT;
   const useRetest = setups.includes("retest"), useRange = setups.includes("range");
   const bb = useRange ? rolling(close, C.BB_PERIOD) : null;
@@ -516,7 +533,7 @@ export async function fetchPerpetuals(fetchImpl) {
 
 /** Koin kripto biasa: bukan token saham (NVDAB, TSLAB, …) dan nama simbol ASCII. */
 export function isCryptoSymbol(symbol) {
-  if (!/^[A-Z0-9]+USDT$/.test(symbol) || C.EXCLUDE.includes(symbol) || C.BLOCKLIST.includes(symbol)) return false;
+  if (!/^[A-Z0-9]+USDT$/.test(symbol) || C.EXCLUDE.includes(symbol) || C.BLOCKLIST.includes(symbol) || C.TRADFI.includes(symbol)) return false;
   const base = symbol.replace(/USDT$/, "");
   return !(/^[A-Z]{2,5}B$/.test(base) && !["BNB", "ARB", "SHIB", "BEB"].includes(base));
 }

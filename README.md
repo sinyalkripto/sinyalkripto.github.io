@@ -1,9 +1,12 @@
 # Titik Masuk
 
-Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 40 koin teratas
-Binance Futures.
+Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 60 koin kripto teratas
+Binance Futures (token saham/komoditas dan `CONFIG.BLOCKLIST` tidak ikut).
 
-## Strategi: pullback searah tren (+ breakout-retest di 1 jam, range di 4 jam)
+Setelan terbaru (tahap 3, lihat di bawah): 1 jam memakai TP 1,25 ATR, SL 2 ATR, breakeven di 40% jalan ke TP,
+dan tren 4 jam harus searah EMA 200 4 jam. 4 jam hanya setup pullback.
+
+## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
 - **Tren harus jelas:** tren 4 jam naik (EMA 20 > EMA 50 di 4 jam), di timeframe itu EMA 20 > EMA 50
   dan harga di atas EMA 200, dan ADX 14 minimal 20 (bukan pasar sideways). Short kebalikannya.
@@ -42,7 +45,7 @@ supaya win rate di atas 60%.
 Menambah koin menambah sinyal dengan win rate tetap sekitar 70%, tapi profit factor di sekitar 1
 (impas setelah biaya) dan sepertiga terakhir di bawah 1 untuk semua kelompok. Memilih koin dari hasil
 paruh pertama tidak membantu di paruh kedua (PF 0,98 vs 0,98), jadi koin dipilih menurut volume saja.
-Situs memantau 40 koin kripto teratas (token saham seperti NVDAB/TSLAB tidak ikut).
+Situs waktu itu memantau 40 koin kripto teratas (sejak tahap 3: 60 koin; token saham tidak ikut).
 
 **Daftar blokir** (`CONFIG.BLOCKLIST` di `engine.js`): koin yang secara konsisten kena stop loss di sinyal
 live dilewati dan tidak muncul di situs maupun `riset.html`. Isi saat ini (Nov 2026): JCT, AKE, SOXS, AAVE,
@@ -108,6 +111,59 @@ Sekitarnya stabil (TP 1,25–1,75, breakeven 40–60% semua PF 1,06–1,38). Fil
 tidak berubah. Catatan: Oktober tetap lemah di semua varian (PF 0,8–0,9); "Impas" dihitung sebagai trade
 untung kecil, jadi sebagian kenaikan win rate berasal dari situ.
 
+### Tahap 3: win rate lebih tinggi dan sinyal lebih banyak (17 Nov 2026)
+
+**Data.** API bursa diblokir dari lingkungan uji, jadi dipakai arsip resmi Binance (`data.binance.vision`,
+diambil lewat S3, lihat `riset/unduh-data.py`): candle Futures USDT-M 1 jam dan 4 jam, 1 Nov 2025 sampai
+16 Nov 2026, 117 koin kripto (46 koin besar + 71 koin peringkat 47–160 menurut volume Oktober 2026).
+Bulan pertama hanya pemanasan indikator. **Latih:** 1 Des 2025–31 Jul 2026 (8 bulan, untuk memilih).
+**Uji:** 1 Agu–16 Nov 2026 (3,5 bulan, tidak dipakai saat memilih). Biaya 0,05% per transaksi, tanpa leverage.
+
+**Yang dicoba** (ide dari repo Vibe-Trading `technical-basic`/`smc`/`candlestick`, ai-trading-claude
+`trade-technical`, dan freqtrade): 22 filter (volume di atas rata-rata, OBV searah, DI searah, kekuatan
+candle, ADX naik, jarak dari EMA 20, ATR%, RSI tidak ekstrem, jam UTC, long/short saja, EMA 200 4 jam),
+parameter ADX/RSI/retest/TP/SL/breakeven, setup tambahan (range 1 jam, retest 4 jam), timeframe 15 menit,
+dan jumlah koin 20/40/60/80. Filter dianggap lolos hanya kalau membantu di kelompok 46 koin **dan** di
+kelompok 71 koin lain (yang tidak dipakai saat menyusun ide).
+
+**Hasil yang tidak dipakai:** hampir semua filter yang bagus di 46 koin (misalnya candle kuat + ADX 25:
+PF 1,23 latih / 1,40 uji) hilang efeknya di 71 koin lain (PF 1,00 / 0,97), jadi kemungkinan kebetulan.
+15 menit tetap rugi (PF 0,74–0,89). Retest di 4 jam rugi (PF 0,89–0,94). Range 4 jam yang dipakai sejak
+tahap 1 ternyata rugi di data 12 bulan (60 koin: PF 1,01 latih, 0,62 uji; sampel lama hanya 48 trade).
+
+**Yang dipakai** (tetap membantu di kedua kelompok koin): filter EMA 200 4 jam, TP 1,25 ATR + breakeven
+40% (win rate naik), 60 koin (sinyal naik), range 4 jam dimatikan.
+
+1 jam, mesin di situs (`engine.js`), koin teratas menurut volume tanpa daftar blokir:
+
+| Setelan | Sinyal/hari (uji) | Win rate latih | PF latih | Win rate uji | PF uji |
+|---|---|---|---|---|---|
+| Situs sebelumnya (40 koin) | 16,6 | 73,6% | 0,97 | 75,8% | 1,09 |
+| **Baru (60 koin)** | **22,8** | **80,7%** | **1,00** | **83,0%** | **1,20** |
+| Baru, 80 koin | 30,1 | 80,2% | 0,99 | 82,6% | 1,19 |
+| Baru + ADX 25 (60 koin) | 17,0 | 81,4% | 1,06 | 82,7% | 1,18 |
+
+4 jam, 60 koin: pullback saja 1,7 sinyal/hari, win 72%/69%, PF 1,12/1,02 (sebelumnya dengan range:
+2,7 sinyal/hari, win 68%/63%, PF 1,08/0,89).
+
+PF per bulan (1 jam, baru): Des 0,68 · Jan 1,12 · Feb 1,49 · Mar 0,86 · Apr 0,65 · Mei 1,24 · Jun 1,12 ·
+Jul 0,84 · Agu 1,46 · Sep 1,20 · Okt 0,96 · Nov 1,24. Ada 4 bulan rugi dari 12.
+
+**Cek silang dengan freqtrade** (strategi diport ke `riset/freqtrade/TitikMasuk.py`, 20 koin besar, futures,
+data yang sama): setelan baru 1.913 trade, win 79,9%, PF ±1,11, total +1,1%; setelan lama 2.919 trade,
+win 73,6%, PF ±1,09, total +1,8%. Di periode uji: baru win 82,7% (+1,3%), lama win 76,3% (+2,8%).
+Jadi freqtrade setuju win rate naik ±6 poin, tapi di 20 koin itu profit total tidak lebih baik.
+
+**Catatan jujur.**
+- Win rate tinggi sebagian besar dari breakeven: ±48% trade 1 jam ditutup di harga masuk + 0,12% (untung
+  tipis ±0,02% setelah biaya). Yang benar-benar kena TP hanya ±33%. Satu kali kena SL (2 ATR) menghapus
+  kira-kira 1,6 kali TP penuh.
+- Dalam 12 bulan PF 1 jam sekitar 1,05: hampir impas. Strategi ini belum terbukti menghasilkan untung
+  besar; win rate tinggi bukan berarti profit tinggi.
+- Repo AI (TradingAgents, AI-Trader, Vibe-Trading, ai-trading-claude) butuh API key LLM dan data
+  saham/berita, jadi hanya ide indikator/filternya yang diuji di sini. freqtrade hanya dipakai untuk
+  backtest (tidak ada trading live atau dry-run ke bursa).
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
@@ -124,6 +180,9 @@ Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV d
 - `app.js`: tampilan, grafik (TradingView Lightweight Charts), analisis teknikal.
 - `globe.js`: animasi bumi di halaman pembuka.
 - `riset/uji-strategi.mjs`: uji strategi di data historis.
+- `riset/unduh-data.py`: unduh candle Futures dari arsip resmi Binance (data.binance.vision lewat S3).
+- `riset/uji-tahap3.mjs`: uji setelan situs dengan pembagian latih/uji.
+- `riset/freqtrade/`: strategi yang sama untuk freqtrade (cek silang backtest, bisa jalan tanpa akses API bursa).
 
 Semua data diambil langsung dari API publik oleh browser pengunjung. Urutan sumber: Binance Futures,
 lalu Bybit (kontrak perpetual USDT, api.bybit.com lalu api.bytick.com) kalau Binance diblokir di
