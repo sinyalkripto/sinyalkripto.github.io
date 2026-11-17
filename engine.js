@@ -2,6 +2,8 @@
 // Jalan di browser (GitHub Pages) dan di Node (untuk tes). Semua data diambil langsung
 // dari API publik Binance Futures (USDT-M) oleh browser pengunjung, tanpa server dan tanpa API key.
 
+import { detectPatterns } from "./pola.js?v=1";
+
 export const CONFIG = {
   // Riset Nov 2026 (README, data Binance Futures Des 2025–Nov 2026): 60 koin ≈ 22 sinyal 1 jam per hari
   // dengan exit dan filter di bawah; 40 koin ≈ 17 sinyal/hari dengan aturan lama.
@@ -87,6 +89,20 @@ export const CONFIG = {
   RANGE_STOP_LOSS_ATR: 1.5,
   RANGE_TAKE_PROFIT_ATR: 1.0,
   RANGE_MAX_HOLD: 12,
+  // Filter pola chart per timeframe (pola.js). Kosong = tidak ada filter. Pilihan:
+  // avoidReversal: lewati LONG kalau pola reversal bearish (double/triple top, head & shoulders, rising wedge)
+  //   baru saja menembus neckline, dan sebaliknya untuk SHORT.
+  // minRoom: lewati sinyal kalau level swing terdekat di arah TP lebih dekat dari minRoom x jarak TP.
+  // confirm: "candle" (wajib pola candlestick searah di candle sinyal), "level" (wajib memantul dari
+  //   support/resistance), "rejection" (keduanya), "any" (salah satu pola searah).
+  // candles: pola candlestick yang dihitung (default semua). setups: setup yang wajib konfirmasi (default semua).
+  // avoidOpposite: lewati sinyal kalau candle sinyalnya membentuk pola candlestick berlawanan arah.
+  // Riset Nov 2026 tahap 5 (README): sinyal breakout-retest 1 jam hanya diambil kalau candle sinyalnya
+  // engulfing, pin bar, atau tweezer searah (penolakan yang jelas di level retest). PF naik di periode latih
+  // dan uji, di 60 koin utama dan di 70 koin lain, dan 10 dari 12 bulan; sinyal 1 jam turun ±50%.
+  // Filter lain (hindari pola reversal, ruang ke resistance, wajib di support, pullback + candle, 4 jam)
+  // tidak konsisten di kedua kelompok koin, jadi tidak dipakai.
+  PATTERNS: { "1h": { confirm: "candle", candles: ["engulfing", "pinbar", "tweezer"], setups: ["retest"] } },
   EXIT_ON_SELL_SIGNAL: false,
   FEE_PERCENT: 0.05,
 };
@@ -164,7 +180,7 @@ export function alignTrend(candles, trendCandles, ema200 = false) {
 export const SETUP_LABEL = { pullback: "Pullback", retest: "Breakout-retest", range: "Range" };
 export const setupsFor = (interval) => C.SETUPS[interval] || C.DEFAULT_SETUPS;
 /** Aturan exit pullback/retest per timeframe: {tp, sl (kelipatan ATR), breakevenAt (bagian jarak TP) atau null}. */
-export const exitFor = (interval) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), trend200: !!C.TREND_EMA200_4H?.[interval] });
+export const exitFor = (interval) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), trend200: !!C.TREND_EMA200_4H?.[interval], patterns: C.PATTERNS?.[interval] || null });
 
 /** Rata-rata dan simpangan baku bergulir (populasi), NaN sebelum cukup data. */
 function rolling(values, period) {
@@ -199,6 +215,25 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
   // Status breakout untuk setup retest: level yang ditembus dan candle tempat breakout terjadi.
   let upLevel = NaN, upAt = -Infinity, dnLevel = NaN, dnAt = -Infinity;
   const N = C.RETEST_LOOKBACK;
+  // Pola chart per candle (pola.js): dipakai filter CONFIG.PATTERNS dan ditampilkan di situs.
+  const pola = detectPatterns(candles, a);
+  const pf = exit.patterns;
+  /** Lolos filter pola untuk arah ini? tpAtr: jarak TP dalam ATR. */
+  const polaOk = (i, long, tpAtr, setup) => {
+    if (!pf) return true;
+    const f = pola[i], s = long ? "bull" : "bear", o = long ? "bear" : "bull";
+    const okCandle = (name) => !!name && (!pf.candles || pf.candles.includes(name));
+    if (pf.avoidReversal && f.reversal[o]) return false;
+    if (pf.avoidOpposite && okCandle(f.candle[o])) return false;
+    if (pf.minRoom && (long ? f.roomUp : f.roomDown) < pf.minRoom * tpAtr) return false;
+    if (pf.setups && !pf.setups.includes(setup)) return true;
+    const cdl = okCandle(f.candle[s]), lvl = long ? f.supportNear : f.resistNear;
+    if (pf.confirm === "candle" && !cdl) return false;
+    if (pf.confirm === "level" && !lvl) return false;
+    if (pf.confirm === "rejection" && !(cdl && lvl)) return false;
+    if (pf.confirm === "any" && !(cdl || lvl || f.reversal[s] || f.flag[s])) return false;
+    return true;
+  };
   return candles.map((k, i) => {
     const warm = i >= C.EMA_TREND && i > 0;
     const strong = x[i] >= C.ADX_MIN;
@@ -254,8 +289,8 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
       }
     }
 
-    // Satu sinyal per candle: setup pertama (urutan CONFIG.SETUPS) yang terpenuhi.
-    const pick = found.sort((p, q) => setups.indexOf(p[1]) - setups.indexOf(q[1]))[0];
+    // Satu sinyal per candle: setup pertama (urutan CONFIG.SETUPS) yang terpenuhi dan lolos filter pola.
+    const pick = found.filter((f) => polaOk(i, f[0] === "BELI", f[3] / a[i], f[1])).sort((p, q) => setups.indexOf(p[1]) - setups.indexOf(q[1]))[0];
     const [signal, setup, sl, tp, maxHold, breakevenAt] = pick || ["TAHAN", null, slDist, tpDist, C.MAX_HOLD_CANDLES, null];
     return {
       ...k, emaFast: emaFast[i], emaSlow: emaSlow[i], emaTrend: emaTrend[i], rsi: r[i], atr: a[i], adx: x[i],
@@ -265,7 +300,7 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
       // Dipakai EXIT_ON_SELL_SIGNAL: tren kecil berbalik.
       crossUp: warm && emaFast[i] > emaSlow[i] && i > 0 && emaFast[i - 1] <= emaSlow[i - 1],
       crossDown: warm && emaFast[i] < emaSlow[i] && i > 0 && emaFast[i - 1] >= emaSlow[i - 1],
-      trend: trend ? trend[i] : null, signal, setup, maxHold, breakevenAt: breakevenAt ?? null,
+      trend: trend ? trend[i] : null, signal, setup, maxHold, breakevenAt: breakevenAt ?? null, pola: pola[i],
     };
   });
 }
@@ -323,6 +358,8 @@ export function simulate(rows, side, interval) {
         sl: long ? row.stopLoss : row.shortStopLoss, tp: long ? row.takeProfit : row.shortTakeProfit,
         setup: row.setup, maxHold: row.maxHold ?? C.MAX_HOLD_CANDLES,
         breakevenAt: row.breakevenAt ?? null, breakeven: false, sl0: long ? row.stopLoss : row.shortStopLoss,
+        // Pola candlestick searah di candle sinyal (pola.js), untuk tampilan.
+        pattern: row.pola?.candle[long ? "bull" : "bear"] ?? null,
       };
     }
   }

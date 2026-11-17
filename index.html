@@ -121,6 +121,9 @@
     <div class="tf-dirs reveal" id="tf-dirs"></div>
     <div class="analysis reveal" id="gauges"></div>
     <details class="more reveal"><summary>Lihat detail tiap indikator</summary><div id="ind-detail" class="analysis" style="margin-top:8px"></div></details>
+    <h3 class="reveal" style="margin:22px 0 6px;font-size:17px">Pola chart</h3>
+    <p class="muted reveal" style="margin:0;font-size:14px">Pola candlestick (engulfing, pin bar, star, tweezer, three soldiers/crows), pola reversal (double/triple top-bottom, head &amp; shoulders, wedge), breakout bendera/pennant/segitiga, dan support/resistance dari swing high/low.</p>
+    <div class="analysis reveal" id="pola"></div>
   </section>
   </div>
   <div class="view" data-view="performa">
@@ -162,7 +165,7 @@
   </div>
   <footer>
     <div class="disclaimer">Sinyal otomatis, bukan nasihat keuangan. Trading futures berisiko tinggi, dan leverage bisa membuat Anda kehilangan seluruh modal. Perkiraan jam take profit dihitung dari data historis dan bukan jaminan.</div>
-    Data harga dari API publik Binance Futures, diambil langsung oleh browser Anda. Strategi: pullback searah tren di semua timeframe. Masuk saat RSI 14 memantul dari koreksi (naik lewat 40 untuk long, turun lewat 60 untuk short) ketika tren 4 jam, EMA 20/50, dan EMA 200 searah dan ADX 14 di atas 20; take profit 1 ATR, stop loss 2 ATR, posisi ditutup paksa setelah 48 candle. Di 1 jam ditambah setup breakout-retest (tembus high/low 20 candle lalu retest level itu, searah tren), tren 4 jam juga harus searah EMA 200 4 jam, dan exit 1 jam untuk pullback maupun retest: TP 1,25 ATR, SL di balik swing low/high 20 candle terakhir (support/resistance terdekat) + 0,5 ATR, minimal 2 ATR dan maksimal 4 ATR, lalu SL digeser ke harga masuk begitu harga sudah jalan 40% jarak ke TP. Di 4 jam hanya setup pullback. Win rate tinggi karena TP lebih dekat dari SL dan hampir separuh trade 1 jam ditutup di harga masuk (untung tipis setelah biaya), jadi perhatikan juga profit factor. Situs ini tidak terafiliasi dengan Binance atau TradingView. Logo koin dari TradingView.
+    Data harga dari API publik Binance Futures, diambil langsung oleh browser Anda. Strategi: pullback searah tren di semua timeframe. Masuk saat RSI 14 memantul dari koreksi (naik lewat 40 untuk long, turun lewat 60 untuk short) ketika tren 4 jam, EMA 20/50, dan EMA 200 searah dan ADX 14 di atas 20; take profit 1 ATR, stop loss 2 ATR, posisi ditutup paksa setelah 48 candle. Di 1 jam ditambah setup breakout-retest (tembus high/low 20 candle lalu retest level itu, searah tren); sinyal retest hanya diambil kalau candle sinyalnya engulfing, pin bar, atau tweezer searah, tren 4 jam juga harus searah EMA 200 4 jam, dan exit 1 jam untuk pullback maupun retest: TP 1,25 ATR, SL di balik swing low/high 20 candle terakhir (support/resistance terdekat) + 0,5 ATR, minimal 2 ATR dan maksimal 4 ATR, lalu SL digeser ke harga masuk begitu harga sudah jalan 40% jarak ke TP. Di 4 jam hanya setup pullback. Win rate tinggi karena TP lebih dekat dari SL dan hampir separuh trade 1 jam ditutup di harga masuk (untung tipis setelah biaya), jadi perhatikan juga profit factor. Situs ini tidak terafiliasi dengan Binance atau TradingView. Logo koin dari TradingView.
   </footer>
 </main>
 
@@ -177,6 +180,6 @@
     <p class="muted" id="calc-note" style="font-size:12px;margin:10px 0 0"></p>
   </form>
 </dialog>
-<script type="module" src="app.js?v=21"></script>
+<script type="module" src="app.js?v=22"></script>
 </body>
 </html>
