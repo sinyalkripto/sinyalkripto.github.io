@@ -513,20 +513,25 @@ function card(t, mode) {
   const hit = liveHit(t);
   const st = hit ? { cls: hit === "TP" ? "ok" : "bad", text: hit === "TP" ? `Kena TP sekitar ${fmtClock(Date.now())} WIB` : `Kena SL sekitar ${fmtClock(Date.now())} WIB` } : entryStatus(t, t.tf, t.atr ?? 0, p);
   // Sinyal kedaluwarsa: jangan tampilkan apa pun yang terasa seperti ajakan masuk.
-  const expired = mode === "signal" && !hit && st.cls === "bad";
-  const est = expired ? null : tpEstimate(t);
+  const expired = !hit && st.cls === "bad";
+  // Sudah kena SL/TP: sinyal selesai, perlakukan sama seperti kedaluwarsa (tidak ada ajakan masuk).
+  const closed = !!hit;
+  const dead = expired || closed;
+  const est = dead ? null : tpEstimate(t);
   const estTxt = est ? `Perkiraan TP ± ${fmtTime(est.at)} WIB${est.overdue ? ' <span class="tag warn">lewat perkiraan</span>' : ""}` : "";
   const id = `${t.sym}|${t.tf}|${t.side}|${t.entryTime}`;
-  const actions = mode === "signal"
-    ? expired
-      ? `<div class="tile-act"><span class="btn-s off">Jangan masuk</span></div>`
-      : `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button>${st.cls === "bad" ? `<span class="btn-s off">Jangan dikejar</span>` : `<a class="btn-s" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang ↗</a>`}</div>`
-    : `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button><a class="btn-s ghost" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>`;
+  const actions = dead
+    ? `<div class="tile-act"><span class="btn-s off">${closed ? "Sinyal selesai · jangan masuk" : "Jangan masuk"}</span></div>`
+    : mode === "signal"
+      ? `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button>${st.cls === "bad" ? `<span class="btn-s off">Jangan dikejar</span>` : `<a class="btn-s" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang ↗</a>`}</div>`
+      : `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button><a class="btn-s ghost" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>`;
   const short = hit ? (hit === "TP" ? "Kena TP" : "Kena SL") : st.cls === "ok" ? "Berlaku" : st.cls === "warn" ? "Lewat jam" : "Kedaluwarsa";
-  const warn = expired
+  const warn = closed
+    ? `<div class="tile-warn${hit === "TP" ? " done" : ""}"><b>Sinyal selesai, jangan masuk.</b> ${hit === "TP" ? "Harga sudah sampai TP, untungnya sudah lewat." : "Harga sudah kena SL, rencana trade ini batal."} Ini bukan sinyal baru. Tunggu sinyal berikutnya di tab Sinyal. Angka di bawah hanya catatan.</div>`
+    : expired
     ? `<div class="tile-warn"><b>Jangan masuk, sinyal sudah kedaluwarsa.</b> ${pnl < 0 ? `Harga sudah ${Math.round(toSl * 100)}% jalan ke arah SL.` : `Harga sudah ${Math.round(toTp * 100)}% jalan ke arah TP.`} Masuk sekarang berarti risiko lebih besar dan untung lebih kecil dari rencana awal. Angka di bawah hanya catatan, bukan saran masuk.</div>`
     : "";
-  return `<div class="tile${expired ? " expired" : ""}">
+  return `<div class="tile${dead ? " expired" : ""}">
       <div class="tile-head">${logo(t.sym)}<div class="tile-id"><span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span></span><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]}${t.setup ? ` · ${SETUP_LABEL[t.setup]}` : ""}${t.pattern ? ` · ${polaName(t.pattern, long ? "bull" : "bear")}` : ""} · ${fmtClock(t.entryTime)} WIB</span></div><span class="tag ${st.cls}" title="${esc(st.text)}">${short}</span></div>
       <div class="tile-pl ${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</div>
       <div class="muted pg-sub">harga ${fmtPrice(p)}</div>
