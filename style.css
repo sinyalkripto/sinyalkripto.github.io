@@ -309,4 +309,8 @@ h2 { font-weight: 800; letter-spacing: -.02em; }
 .tile-act { display: flex; gap: 8px; margin-top: 8px; }
 .tile-act .btn-s { flex: 1; justify-content: center; }
 .btn-s.off { background: var(--bg2); color: var(--muted); cursor: default; }
+.tile-warn { background: var(--downbg); color: var(--down); border: 1px solid color-mix(in srgb, var(--down) 45%, transparent); border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.45; margin-top: 6px; }
+.tile-warn b { display: block; font-size: 14px; margin-bottom: 2px; }
+.tile.expired .tile-pl, .tile.expired .pbar, .tile.expired .tile-lv { opacity: .45; }
+.tile.expired .btn-s.off { color: var(--down); background: var(--downbg); font-weight: 700; }
 @media (max-width: 700px) { .cards { grid-template-columns: minmax(0, 1fr); } .tile-pl { font-size: 28px; } }

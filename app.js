@@ -491,17 +491,25 @@ function card(t, mode) {
   const nearSl = pnl < 0 ? `SL · ${Math.round(toSl * 100)}%` : "SL";
   const hit = liveHit(t);
   const st = hit ? { cls: hit === "TP" ? "ok" : "bad", text: hit === "TP" ? `Kena TP sekitar ${fmtClock(Date.now())} WIB` : `Kena SL sekitar ${fmtClock(Date.now())} WIB` } : entryStatus(t, t.tf, t.atr ?? 0, p);
-  const est = tpEstimate(t);
+  // Sinyal kedaluwarsa: jangan tampilkan apa pun yang terasa seperti ajakan masuk.
+  const expired = mode === "signal" && !hit && st.cls === "bad";
+  const est = expired ? null : tpEstimate(t);
   const estTxt = est ? `Perkiraan TP ± ${fmtTime(est.at)} WIB${est.overdue ? ' <span class="tag warn">lewat perkiraan</span>' : ""}` : "";
   const id = `${t.sym}|${t.tf}|${t.side}|${t.entryTime}`;
   const actions = mode === "signal"
-    ? `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button>${st.cls === "bad" ? `<span class="btn-s off">Jangan dikejar</span>` : `<a class="btn-s" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang ↗</a>`}</div>`
+    ? expired
+      ? `<div class="tile-act"><span class="btn-s off">Jangan masuk</span></div>`
+      : `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button>${st.cls === "bad" ? `<span class="btn-s off">Jangan dikejar</span>` : `<a class="btn-s" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Pasang ↗</a>`}</div>`
     : `<div class="tile-act"><button type="button" class="btn-s ghost" data-calc="${esc(id)}">Hitung posisi</button><a class="btn-s ghost" href="${tradeUrl(t.sym)}" target="_blank" rel="noopener">Buka di Binance ↗</a></div>`;
   const short = hit ? (hit === "TP" ? "Kena TP" : "Kena SL") : st.cls === "ok" ? "Berlaku" : st.cls === "warn" ? "Lewat jam" : "Kedaluwarsa";
-  return `<div class="tile">
+  const warn = expired
+    ? `<div class="tile-warn"><b>Jangan masuk, sinyal sudah kedaluwarsa.</b> ${pnl < 0 ? `Harga sudah ${Math.round(toSl * 100)}% jalan ke arah SL.` : `Harga sudah ${Math.round(toTp * 100)}% jalan ke arah TP.`} Masuk sekarang berarti risiko lebih besar dan untung lebih kecil dari rencana awal. Angka di bawah hanya catatan, bukan saran masuk.</div>`
+    : "";
+  return `<div class="tile${expired ? " expired" : ""}">
       <div class="tile-head">${logo(t.sym)}<div class="tile-id"><span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span></span><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]}${t.setup ? ` · ${SETUP_LABEL[t.setup]}` : ""} · ${fmtClock(t.entryTime)} WIB</span></div><span class="tag ${st.cls}" title="${esc(st.text)}">${short}</span></div>
       <div class="tile-pl ${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</div>
       <div class="muted pg-sub">harga ${fmtPrice(p)}</div>
+      ${warn}
       <div class="pbar" role="img" aria-label="Harga sekarang ${pnl >= 0 ? `${Math.round(toTp * 100)}% menuju take profit` : `${Math.round(toSl * 100)}% menuju stop loss`}">
         <div class="pbar-track"><i style="left:${mark.toFixed(1)}%"></i></div>
         <div class="pbar-lbl"><span>${nearSl}</span><span>Entry</span><span>${near}</span></div>
@@ -511,7 +519,7 @@ function card(t, mode) {
         <div><span class="pg-k">SL ${fmtPct((t.sl / t.entry - 1) * 100, 1)}</span><b class="down">${fmtPrice(t.sl)}</b></div>
         <div><span class="pg-k">TP ${fmtPct((t.tp / t.entry - 1) * 100, 1)}</span><b class="up">${fmtPrice(t.tp)}</b></div>
       </div>
-      <div class="tile-meta muted">${t.breakeven ? "SL sudah digeser ke harga masuk (posisi aman dari rugi)<br>" : t.breakevenAt ? `SL digeser ke harga masuk begitu harga sampai ${fmtPrice(t.entry + (t.tp - t.entry) * t.breakevenAt)}<br>` : ""}${st.text}${estTxt ? `<br>${estTxt}` : ""}<br>Masuk = harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)} WIB</div>
+      <div class="tile-meta muted">${t.breakeven ? "SL sudah digeser ke harga masuk (posisi aman dari rugi)<br>" : t.breakevenAt ? `SL digeser ke harga masuk begitu harga sampai ${fmtPrice(t.entry + (t.tp - t.entry) * t.breakevenAt)}<br>` : ""}${expired ? "" : `${st.text}${estTxt ? `<br>${estTxt}` : ""}<br>`}Masuk = harga tutup candle ${fmtClock(t.entryTime - INTERVAL_MS[t.tf])}–${fmtClock(t.entryTime)} WIB</div>
       ${actions}
     </div>`;
 }
