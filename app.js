@@ -1,6 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, SETUP_LABEL, setupsFor, exitFor,
-} from "./engine.js?v=17";
+} from "./engine.js?v=18";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 import { polaName } from "./pola.js?v=1";
 
@@ -16,7 +16,7 @@ const EXPERIMENTAL = new Set(["1s", "1m", "3m", "5m", "15m", "30m"]);
 const tfNote = (tf) => (tf === MAIN_TF ? "utama" : EXPERIMENTAL.has(tf) ? "eksperimen" : "");
 const tfTag = (tf) => (tf === MAIN_TF ? ' <span class="tag ok" style="font-size:11px;padding:1px 6px">utama</span>' : EXPERIMENTAL.has(tf) ? ' <span class="tag warn" style="font-size:11px;padding:1px 6px">eksperimen</span>' : "");
 const S = {
-  symbols: [], info: {}, data: {}, res: {}, prices: {}, prevPrices: {},
+  symbols: [], fastOnly: [], info: {}, data: {}, res: {}, prices: {}, prevPrices: {},
   sel: "BTCUSDT", tf: "1h", ind: { ema: true, bb: false, vol: true, rsi: true, macd: true },
   sigTf: MAIN_TF, sigSide: "all", showAllPos: false, loadErr: {},
 };
@@ -152,13 +152,25 @@ function compute(sym, tf) {
   if (!d) return;
   const trend = usesFilter(tf) ? S.data[sym]?.[CONFIG.TREND_FILTER]?.closed : null;
   if (usesFilter(tf) && !trend) return;
+  // Koin tambahan (peringkat 61–100) hanya menghasilkan sinyal di timeframe kecil, kecuali sedang dibuka di grafik.
+  if (sym !== S.sel && !CONFIG.FAST_TIMEFRAMES.includes(tf) && S.fastOnly.some((x) => x.symbol === sym)) return;
   S.res[sym] ??= {};
   S.res[sym][tf] = analyze(sym, tf, d.closed, trend);
 }
 
+// Ambil ulang candle: kalau data lama sudah ada, cukup 20 candle terakhir lalu disambung (bobot API jauh lebih kecil,
+// jadi lebih banyak koin bisa dipantau). Kalau ada celah, ambil penuh lagi.
 async function load(sym, tf) {
   if (tf === SOLO_TF) { await ensureSolo(sym); return soloTick(); }
-  const k = await fetchKlines(sym, tf, candleLimit(tf));
+  const prev = S.data[sym]?.[tf], limit = candleLimit(tf);
+  let k = null;
+  if (prev?.closed?.length) {
+    const inc = await fetchKlines(sym, tf, 20);
+    const all = [...inc.closed, inc.live].filter(Boolean);
+    const first = all[0]?.time, old = prev.closed.filter((c) => c.time < first);
+    if (old.length && first - old[old.length - 1].time <= INTERVAL_MS[tf]) k = { closed: [...old, ...inc.closed].slice(-(limit - 1)), live: inc.live };
+  }
+  k ??= await fetchKlines(sym, tf, limit);
   S.data[sym] ??= {};
   S.data[sym][tf] = k;
   if (tf === CONFIG.TREND_FILTER) TFS.forEach((t) => compute(sym, t));
@@ -225,9 +237,12 @@ function renderAll() {
 async function init() {
   try {
     splashProgress(12, "Menghubungkan ke Binance…");
-    S.symbols = await topSymbols(CONFIG.TOP_COINS);
+    const all = await topSymbols(CONFIG.TOP_COINS_FAST);
+    const crypto = all.filter((s) => !CONFIG.EXTRA_SYMBOLS.includes(s.symbol));
+    S.symbols = [...crypto.slice(0, CONFIG.TOP_COINS), ...all.filter((s) => CONFIG.EXTRA_SYMBOLS.includes(s.symbol))];
+    S.fastOnly = crypto.slice(CONFIG.TOP_COINS);
     showSource();
-    S.symbols.forEach((s) => { S.info[s.symbol] = s; S.prices[s.symbol] = s.price; });
+    all.forEach((s) => { S.info[s.symbol] = s; S.prices[s.symbol] = s.price; });
     if (!S.info[S.sel]) S.sel = S.symbols[0].symbol;
     renderCoins();
     splashProgress(30, `Membaca harga ${S.symbols.length} koin…`);
@@ -242,6 +257,8 @@ async function init() {
     renderAll();
     const rest = [];
     for (const tf of ["30m", "15m", "5m", "3m", "1m"]) for (const { symbol } of S.symbols) rest.push(async () => { await load(symbol, tf); scheduleRender(); });
+    // Koin tambahan khusus timeframe kecil: 4 jam dulu (filter tren), lalu timeframe kecil.
+    for (const { symbol } of S.fastOnly) rest.push(async () => { await load(symbol, "4h"); for (const tf of CONFIG.FAST_TIMEFRAMES) await load(symbol, tf); scheduleRender(); });
     await pool(rest, 4);
     renderAll();
     startLive();
@@ -326,7 +343,7 @@ function startLive() {
   }, 2000);
   setInterval(async () => {
     try {
-      const fresh = await topSymbols(60);
+      const fresh = await topSymbols(CONFIG.TOP_COINS_FAST);
       for (const f of fresh) if (S.info[f.symbol]) S.info[f.symbol].change = f.change;
     } catch (e) { console.warn(e); }
   }, 60e3);
@@ -337,11 +354,14 @@ function startLive() {
     changed.forEach((tf) => { lastClose[tf] = Math.floor((Date.now() - 4000) / INTERVAL_MS[tf]); });
     const order = changed.includes("4h") ? ["4h", ...changed.filter((t) => t !== "4h")] : changed;
     const tasks = [];
-    for (const tf of order) for (const { symbol } of S.symbols) tasks.push(() => load(symbol, tf));
+    for (const tf of order) for (const { symbol } of symbolsFor(tf)) tasks.push(() => load(symbol, tf));
     await pool(tasks, 4);
     renderAll();
   }, 5000);
 }
+
+/** Koin yang dipantau di timeframe ini (timeframe kecil + 4 jam juga memakai koin tambahan). */
+const symbolsFor = (tf) => (CONFIG.FAST_TIMEFRAMES.includes(tf) || tf === CONFIG.TREND_FILTER ? [...S.symbols, ...S.fastOnly] : S.symbols);
 
 function updateLive() {
   for (const { symbol } of S.symbols) {
