@@ -60,7 +60,10 @@ export const CONFIG = {
   // jalan setengah jarak ke TP. PF naik dari 1,21 ke 1,26 dengan sinyal sedikit lebih banyak; win rate ±76%.
   // Riset Nov 2026 tahap 3 (data 46 + 71 koin, Des 2025–Nov 2026): TP 1,25 ATR dan breakeven di 40% menaikkan
   // win rate 1 jam dari ±76% ke ±83% di periode uji dengan profit factor sedikit lebih baik.
-  EXITS: { "1h": { tp: 1.25, sl: 2, breakevenAt: 0.4 } },
+  // Stop loss 1 jam (tahap 4): di balik swing low/high 20 candle terakhir (support/resistance terdekat)
+  // + 0,5 ATR, minimal 2 ATR (sl) dan maksimal 4 ATR (slMax). Jadi SL tidak mepet ke harga masuk
+  // kalau support/resistance-nya lebih jauh. Kena SL penuh turun dari ±18% ke ±11% trade.
+  EXITS: { "1h": { tp: 1.25, sl: 2, breakevenAt: 0.4, slSwing: 20, slBuffer: 0.5, slMax: 4 } },
   // Filter tambahan per timeframe: tren 4 jam juga harus searah EMA 200 4 jam (harga 4 jam di atas EMA 200
   // untuk long, di bawah untuk short). Membuang ±12% sinyal 1 jam yang paling lemah.
   TREND_EMA200_4H: { "1h": true },
@@ -207,9 +210,20 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
 
     // 1) Pullback searah tren.
     const slDist = exit.sl * a[i], tpDist = exit.tp * a[i];
-    if (setups.includes("pullback") && warm && strong && big(tpDist) && sane(slDist)) {
-      if (trendUp && k.close > emaTrend[i] && r[i - 1] < C.RSI_PULLBACK_LONG && r[i] >= C.RSI_PULLBACK_LONG) found.push(["BELI", "pullback", slDist, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
-      if (shortOn && trendDn && k.close < emaTrend[i] && r[i - 1] > C.RSI_PULLBACK_SHORT && r[i] <= C.RSI_PULLBACK_SHORT) found.push(["SHORT", "pullback", slDist, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
+    // Jarak SL per arah: default kelipatan ATR; dengan exit.slSwing di balik swing low (long) / swing high
+    // (short) N candle terakhir + buffer, dibatasi antara sl dan slMax ATR.
+    const slFor = (long) => {
+      if (!exit.slSwing) return slDist;
+      let ext = long ? Infinity : -Infinity;
+      for (let j = Math.max(0, i - exit.slSwing + 1); j <= i; j++) ext = long ? Math.min(ext, candles[j].low) : Math.max(ext, candles[j].high);
+      const d = (long ? k.close - ext : ext - k.close) + (exit.slBuffer || 0) * a[i];
+      // Tidak lebih jauh dari batas SL maksimal (MAX_STOP_LOSS_PERCENT) kecuali jarak ATR dasarnya sendiri.
+      return Math.max(slDist, Math.min(d, (exit.slMax || exit.sl) * a[i], maxSlPercent / 100 * k.close));
+    };
+    const slL = slFor(true), slS = slFor(false);
+    if (setups.includes("pullback") && warm && strong && big(tpDist)) {
+      if (sane(slDist) && trendUp && k.close > emaTrend[i] && r[i - 1] < C.RSI_PULLBACK_LONG && r[i] >= C.RSI_PULLBACK_LONG) found.push(["BELI", "pullback", slL, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
+      if (sane(slDist) && shortOn && trendDn && k.close < emaTrend[i] && r[i - 1] > C.RSI_PULLBACK_SHORT && r[i] <= C.RSI_PULLBACK_SHORT) found.push(["SHORT", "pullback", slS, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
     }
 
     // 2) Breakout-retest.
@@ -223,9 +237,9 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
       if (!brkDn && i - dnAt >= 1 && i - dnAt <= C.RETEST_WINDOW && k.high >= dnLevel - tol && k.close < dnLevel && k.close < k.open) { rtDn = true; dnAt = -Infinity; }
       if (brkUp) { upLevel = hh; upAt = i; }
       if (brkDn) { dnLevel = ll; dnAt = i; }
-      if (warm && strong && big(tpDist) && sane(slDist)) {
-        if (rtUp && trendUp) found.push(["BELI", "retest", slDist, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
-        if (rtDn && shortOn && trendDn) found.push(["SHORT", "retest", slDist, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
+      if (warm && strong && big(tpDist)) {
+        if (sane(slDist) && rtUp && trendUp) found.push(["BELI", "retest", slL, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
+        if (sane(slDist) && rtDn && shortOn && trendDn) found.push(["SHORT", "retest", slS, tpDist, C.MAX_HOLD_CANDLES, exit.breakevenAt]);
       }
     }
 

@@ -3,7 +3,8 @@
 Situs statis (GitHub Pages) yang menampilkan sinyal long/short otomatis untuk 60 koin kripto teratas
 Binance Futures (token saham/komoditas dan `CONFIG.BLOCKLIST` tidak ikut).
 
-Setelan terbaru (tahap 3, lihat di bawah): 1 jam memakai TP 1,25 ATR, SL 2 ATR, breakeven di 40% jalan ke TP,
+Setelan terbaru (tahap 3 dan 4, lihat di bawah): 1 jam memakai TP 1,25 ATR, SL di balik swing low/high 20 candle
+(+0,5 ATR, antara 2 dan 4 ATR), breakeven di 40% jalan ke TP,
 dan tren 4 jam harus searah EMA 200 4 jam. 4 jam hanya setup pullback.
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
@@ -163,6 +164,22 @@ Jadi freqtrade setuju win rate naik ±6 poin, tapi di 20 koin itu profit total t
 - Repo AI (TradingAgents, AI-Trader, Vibe-Trading, ai-trading-claude) butuh API key LLM dan data
   saham/berita, jadi hanya ide indikator/filternya yang diuji di sini. freqtrade hanya dipakai untuk
   backtest (tidak ada trading live atau dry-run ke bursa).
+
+### Tahap 4: SL di balik support/resistance (17 Nov 2026)
+
+Permintaan: SL jangan mepet ke harga masuk, baca support/resistance dulu. SL 1 jam sekarang ditaruh di balik
+swing low (long) atau swing high (short) 20 candle terakhir, ditambah 0,5 ATR. Jaraknya minimal 2 ATR (seperti
+sebelumnya), maksimal 4 ATR, dan tidak lebih dari 8% harga.
+
+| 60 koin, 1 jam | Sinyal/hari (uji) | Win latih | PF latih | Win uji | PF uji | Kena SL penuh | Jarak SL median |
+|---|---|---|---|---|---|---|---|
+| Tahap 3 (SL 2 ATR) | 22,8 | 80,7% | 1,00 | 83,0% | 1,20 | 18% | 2,3% |
+| Tahap 4 (SL swing) | 22,5 | 86,8% | 1,02 | 88,1% | 1,20 | 11% | 3,9% |
+
+Di 57 koin lain (peringkat 61+), SL swing juga lebih baik: PF 1,03 → 1,08 (latih) dan 1,20 → 1,26 (uji).
+Breakeven tetap di 40%: menundanya ke 60% atau menghapusnya menurunkan win rate (84% / 75%) dengan PF mirip.
+Jarak SL median (10 koin besar) naik dari 2,3% ke 3,9%, jadi ukuran posisi perlu disesuaikan supaya risiko
+per trade tetap sama. 4 jam tidak berubah. `riset/freqtrade/TitikMasuk.py` masih memakai SL 2 ATR.
 
 ## Di situs
 
