@@ -5,7 +5,8 @@ Binance Futures (token saham/komoditas dan `CONFIG.BLOCKLIST` tidak ikut).
 
 Setelan terbaru (tahap 3 dan 4, lihat di bawah): 1 jam memakai TP 1,25 ATR, SL di balik swing low/high 20 candle
 (+0,5 ATR, antara 2 dan 4 ATR), breakeven di 40% jalan ke TP,
-dan tren 4 jam harus searah EMA 200 4 jam. 4 jam hanya setup pullback.
+dan tren 4 jam harus searah EMA 200 4 jam. Sinyal breakout-retest 1 jam wajib dikonfirmasi pola candlestick
+searah (engulfing, pin bar, atau tweezer; tahap 5). 4 jam hanya setup pullback.
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
@@ -181,6 +182,44 @@ Breakeven tetap di 40%: menundanya ke 60% atau menghapusnya menurunkan win rate 
 Jarak SL median (10 koin besar) naik dari 2,3% ke 3,9%, jadi ukuran posisi perlu disesuaikan supaya risiko
 per trade tetap sama. 4 jam tidak berubah. `riset/freqtrade/TitikMasuk.py` masih memakai SL 2 ATR.
 
+### Tahap 5: pola chart (17 Nov 2026)
+
+Permintaan: perhatikan pola chart yang umum dipakai trader dan pakai untuk mempertajam sinyal. `pola.js`
+mendeteksi, per candle dan tanpa melihat candle sesudahnya:
+
+- **Candlestick** (penolakan di support/resistance): bullish/bearish engulfing, hammer/shooting star (pin bar),
+  morning/evening star, tweezer bottom/top, three white soldiers/three black crows.
+- **Support/resistance**: swing high/low (3 candle kiri-kanan) 120 candle terakhir, termasuk level yang berganti
+  peran (resistance yang ditembus jadi support). Dipakai untuk "memantul dari level" dan jarak ke level terdekat.
+- **Reversal**: double/triple top-bottom, head & shoulders (dan inverse), rising/falling wedge. Dianggap aktif
+  24 candle setelah close menembus neckline.
+- **Continuation**: breakout bendera/pennant/segitiga/kotak kecil setelah tiang minimal 3 ATR.
+
+Diuji seperti tahap 3 (latih Des 2025–Jul 2026, uji Agu–16 Nov 2026), di 60 koin teratas dan di 70 koin lain
+(peringkat 61–130 volume Oktober 2026). Tiap varian disimulasikan ulang penuh (`riset/uji-pola.mjs`).
+
+| 1 jam | 60 koin: sinyal/hari uji | PF latih | PF uji | 70 koin lain: PF latih | PF uji |
+|---|---|---|---|---|---|
+| Tahap 4 (tanpa pola) | 21,9 | 1,02 | 1,18 | 1,03 | 1,21 |
+| Hindari pola reversal berlawanan | 18,2 | 1,04 | 1,15 | 1,04 | 1,28 |
+| Ruang ke resistance ≥ 0,75 × TP | 11,3 | 0,99 | 1,01 | 1,10 | 1,19 |
+| Wajib memantul dari support/resistance | 16,5 | 1,02 | 1,18 | 1,01 | 1,17 |
+| Wajib candle + level (rejection) | 6,5 | 1,02 | 1,35 | 1,04 | 1,23 |
+| Semua setup wajib engulfing/pin bar/tweezer | 7,5 | 1,15 | 1,34 | 1,14 | 1,33 |
+| **Retest wajib engulfing/pin bar/tweezer (dipakai)** | **10,5** | **1,11** | **1,26** | **1,12** | **1,41** |
+
+Win rate hampir tidak berubah (±86–88%); yang naik adalah rata-rata untung per trade (60 koin, uji: 0,11% →
+0,14%; latih: 0,01% → 0,07%). PF per bulan (130 koin) lebih baik di 10 dari 12 bulan; bulan rugi turun dari 5
+ke 3 (Mar, Apr, Jul). Morning/evening star dan three soldiers/crows justru menurunkan hasil, jadi tidak dihitung
+sebagai konfirmasi. Pullback + candle tidak membantu, dan di 4 jam semua filter pola tidak konsisten (sampel
+kecil), jadi 4 jam tidak berubah.
+
+**Catatan jujur.** Sinyal 1 jam turun kira-kira separuh (60 koin: ±22 → ±10,5 per hari). Karena trade lebih
+sedikit, total untung (jumlah % semua trade, tanpa leverage) di periode uji lebih kecil: 60 koin +259% → +158%,
+70 koin +396% → +330%; di periode latih justru naik (+73% → +165%, +126% → +224%). Jadi filter ini membuat tiap
+sinyal lebih berkualitas dan modal lebih jarang terpakai, bukan menjamin untung total lebih besar. Pola lain
+tetap ditampilkan di halaman Pasar (bagian "Pola chart") sebagai bahan baca grafik.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
@@ -199,6 +238,8 @@ Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV d
 - `riset/uji-strategi.mjs`: uji strategi di data historis.
 - `riset/unduh-data.py`: unduh candle Futures dari arsip resmi Binance (data.binance.vision lewat S3).
 - `riset/uji-tahap3.mjs`: uji setelan situs dengan pembagian latih/uji.
+- `riset/uji-pola.mjs`: uji filter pola chart (CONFIG.PATTERNS) dengan pembagian latih/uji.
+- `pola.js`: deteksi pola candlestick, support/resistance, reversal, dan continuation.
 - `riset/freqtrade/`: strategi yang sama untuk freqtrade (cek silang backtest, bisa jalan tanpa akses API bursa).
 
 Semua data diambil langsung dari API publik oleh browser pengunjung. Urutan sumber: Binance Futures,

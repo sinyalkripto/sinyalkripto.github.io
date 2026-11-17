@@ -1,7 +1,8 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, SETUP_LABEL, setupsFor, exitFor,
-} from "./engine.js?v=16";
+} from "./engine.js?v=17";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
+import { polaName } from "./pola.js?v=1";
 
 const $ = (s) => document.querySelector(s);
 const TFS = CONFIG.TIMEFRAMES;
@@ -506,7 +507,7 @@ function card(t, mode) {
     ? `<div class="tile-warn"><b>Jangan masuk, sinyal sudah kedaluwarsa.</b> ${pnl < 0 ? `Harga sudah ${Math.round(toSl * 100)}% jalan ke arah SL.` : `Harga sudah ${Math.round(toTp * 100)}% jalan ke arah TP.`} Masuk sekarang berarti risiko lebih besar dan untung lebih kecil dari rencana awal. Angka di bawah hanya catatan, bukan saran masuk.</div>`
     : "";
   return `<div class="tile${expired ? " expired" : ""}">
-      <div class="tile-head">${logo(t.sym)}<div class="tile-id"><span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span></span><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]}${t.setup ? ` · ${SETUP_LABEL[t.setup]}` : ""} · ${fmtClock(t.entryTime)} WIB</span></div><span class="tag ${st.cls}" title="${esc(st.text)}">${short}</span></div>
+      <div class="tile-head">${logo(t.sym)}<div class="tile-id"><span><b>${esc(baseAsset(t.sym))}</b> <span class="${long ? "up" : "down"}" title="${t.side}">${long ? "▲" : "▼"}</span></span><span class="muted pg-sub">${t.side} · ${TF_LABEL[t.tf]}${t.setup ? ` · ${SETUP_LABEL[t.setup]}` : ""}${t.pattern ? ` · ${polaName(t.pattern, long ? "bull" : "bear")}` : ""} · ${fmtClock(t.entryTime)} WIB</span></div><span class="tag ${st.cls}" title="${esc(st.text)}">${short}</span></div>
       <div class="tile-pl ${pnl >= 0 ? "up" : "down"}">${fmtPct(pnl)}</div>
       <div class="muted pg-sub">harga ${fmtPrice(p)}</div>
       ${warn}
@@ -761,6 +762,36 @@ function renderAnalysis() {
   $("#gauges").innerHTML = gauge("Osilator", rt.sOsc, rt.osc, subWord(rt.sOsc)) + gauge(`Arah ${TF_LABEL[S.tf]}`, rt.sAll, [...rt.osc, ...rt.mas], dirWord(rt.sAll, rt.dir)) + gauge("Tren (moving average dll.)", rt.sMa, rt.mas, subWord(rt.sMa));
   const tbl = (list) => `<table class="ind-table">${list.map((x) => `<tr><td>${x.name}</td><td>${x.value == null || Number.isNaN(x.value) ? "–" : nf(Math.abs(x.value) >= 100 ? 2 : 4).format(x.value)}</td><td style="color:${voteColor(x.vote)}">${voteWord(x.vote)}</td></tr>`).join("")}</table>`;
   $("#ind-detail").innerHTML = `<div>${tbl(rt.osc)}</div><div>${tbl(rt.mas)}</div>`;
+  renderPola(r);
+}
+
+/** Pola chart (pola.js) di candle-candle terakhir: candlestick, reversal, continuation, support/resistance. */
+function renderPola(r) {
+  const rows = r.rows, last = rows[rows.length - 1], f = last?.pola;
+  if (!f) { $("#pola").innerHTML = ""; return; }
+  const step = INTERVAL_MS[S.tf];
+  const items = [];
+  // Pola candlestick dan breakout bendera di 5 candle terakhir (terbaru dulu).
+  for (let i = rows.length - 1; i >= Math.max(0, rows.length - 5); i--) {
+    const p = rows[i].pola;
+    if (!p) continue;
+    for (const side of ["bull", "bear"]) {
+      if (p.candle[side]) items.push({ side, text: polaName(p.candle[side], side), kind: "Candlestick", at: rows[i].time + step });
+      if (p.flag[side]) items.push({ side, text: polaName(p.flag[side], side), kind: "Continuation (breakout)", at: rows[i].time + step });
+    }
+  }
+  for (const side of ["bull", "bear"]) if (f.reversal[side]) items.unshift({ side, text: polaName(f.reversal[side], side), kind: "Reversal, neckline sudah ditembus", at: null });
+  const lvl = (room, up) => (Number.isFinite(room) ? fmtPrice(last.close + (up ? 1 : -1) * room * last.atr) : "–");
+  const list = items.length
+    ? items.map((x) => `<tr><td>${esc(x.text)}<div class="muted" style="font-size:12px">${x.kind}${x.at ? ` · candle tutup ${fmtClock(x.at)} WIB` : ""}</div></td><td style="color:${x.side === "bull" ? "var(--up)" : "var(--down)"}">${x.side === "bull" ? "Long" : "Short"}</td></tr>`).join("")
+    : `<tr><td class="muted">Belum ada pola yang jelas di 5 candle terakhir.</td><td></td></tr>`;
+  $("#pola").innerHTML = `<div><table class="ind-table">${list}</table></div>
+    <div><table class="ind-table">
+      <tr><td>Resistance terdekat (swing high/low di atas harga)</td><td>${lvl(f.roomUp, true)}</td></tr>
+      <tr><td>Support terdekat (swing high/low di bawah harga)</td><td>${lvl(f.roomDown, false)}</td></tr>
+      <tr><td>Harga sedang memantul dari</td><td>${f.supportNear ? '<span class="up">support</span>' : f.resistNear ? '<span class="down">resistance</span>' : "–"}</td></tr>
+    </table>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Sinyal breakout-retest 1 jam hanya muncul kalau candle sinyalnya engulfing, pin bar, atau tweezer searah (hasil uji historis, lihat README). Pola lain di sini hanya bahan baca grafik.</p></div>`;
 }
 
 // ---------- Grafik ----------
