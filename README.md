@@ -44,6 +44,12 @@ Menambah koin menambah sinyal dengan win rate tetap sekitar 70%, tapi profit fac
 paruh pertama tidak membantu di paruh kedua (PF 0,98 vs 0,98), jadi koin dipilih menurut volume saja.
 Situs memantau 40 koin kripto teratas (token saham seperti NVDAB/TSLAB tidak ikut).
 
+**Daftar blokir** (`CONFIG.BLOCKLIST` di `engine.js`): koin yang secara konsisten kena stop loss di sinyal
+live dilewati dan tidak muncul di situs maupun `riset.html`. Isi saat ini (Nov 2026): JCT, AKE, SOXS, AAVE,
+LIT, NVDA, ARIA, NEAR. NVDA dan SOXS adalah token saham/ETF yang lolos filter token saham. Di data lokal
+(1 jam, Apr–Okt 2026, 17 koin) NEAR punya profit factor terendah (0,68, 30% trade kena SL); koin lain di daftar
+belum ada datanya. Tambah atau hapus simbol langsung di daftar itu.
+
 ## Riset Nov 2026: lebih banyak sinyal di 1 jam dan 4 jam
 
 Kenapa jarang: setup pullback butuh 5 syarat sekaligus (tren 4 jam, EMA 20/50, EMA 200, ADX >= 20, RSI

@@ -1,6 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, SETUP_LABEL, setupsFor, exitFor,
-} from "./engine.js?v=13";
+} from "./engine.js?v=14";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 
 const $ = (s) => document.querySelector(s);

@@ -9,6 +9,10 @@ export const CONFIG = {
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
     "AEURUSDT", "USD1USDT", "XUSDUSDT", "BFUSDUSDT", "RLUSDUSDT", "USDEUSDT",
     "PAXGUSDT", "XAUTUSDT", "WBTCUSDT", "SPCXBUSDT", "SNDKBUSDT", "UUSDT"],
+  // Daftar blokir: koin yang secara konsisten kena stop loss di sinyal live (catatan pengguna, Nov 2026).
+  // Tidak dianalisis dan tidak muncul di situs. Tambah atau hapus nama simbol di sini (format XXXUSDT).
+  // NVDAUSDT dan SOXSUSDT adalah token saham/ETF, bukan kripto, dan sebelumnya lolos dari filter token saham.
+  BLOCKLIST: ["JCTUSDT", "AKEUSDT", "SOXSUSDT", "AAVEUSDT", "LITUSDT", "NVDAUSDT", "ARIAUSDT", "NEARUSDT"],
   TIMEFRAMES: ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "4h"],
   CANDLE_LIMIT: 1500,
   // Timeframe kecil cukup 1000 candle (lebih ringan untuk batas API).
@@ -512,12 +516,12 @@ export async function fetchPerpetuals(fetchImpl) {
 
 /** Koin kripto biasa: bukan token saham (NVDAB, TSLAB, …) dan nama simbol ASCII. */
 export function isCryptoSymbol(symbol) {
-  if (!/^[A-Z0-9]+USDT$/.test(symbol) || C.EXCLUDE.includes(symbol)) return false;
+  if (!/^[A-Z0-9]+USDT$/.test(symbol) || C.EXCLUDE.includes(symbol) || C.BLOCKLIST.includes(symbol)) return false;
   const base = symbol.replace(/USDT$/, "");
   return !(/^[A-Z]{2,5}B$/.test(base) && !["BNB", "ARB", "SHIB", "BEB"].includes(base));
 }
 
-/** N kontrak perpetual USDT dengan volume 24 jam terbesar, tanpa stablecoin (CONFIG.EXCLUDE) dan token saham. */
+/** N kontrak perpetual USDT dengan volume 24 jam terbesar, tanpa stablecoin (CONFIG.EXCLUDE), koin yang diblokir (CONFIG.BLOCKLIST) dan token saham. */
 export async function topSymbols(n = C.TOP_COINS, fetchImpl) {
   const src = await connect(fetchImpl);
   const tickers = await src.tickers24(fetchImpl);
