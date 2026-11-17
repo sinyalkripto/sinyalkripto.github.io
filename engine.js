@@ -8,6 +8,10 @@ export const CONFIG = {
   // Riset Nov 2026 (README, data Binance Futures Des 2025–Nov 2026): 60 koin ≈ 22 sinyal 1 jam per hari
   // dengan exit dan filter di bawah; 40 koin ≈ 17 sinyal/hari dengan aturan lama.
   TOP_COINS: 60,
+  // Timeframe kecil (eksperimen) memindai lebih banyak koin: 100 koin teratas. Koin peringkat 61–100 hanya dianalisis
+  // di FAST_TIMEFRAMES (plus 4 jam untuk filter tren), tidak muncul di daftar koin, tapi sinyalnya tampil.
+  TOP_COINS_FAST: 100,
+  FAST_TIMEFRAMES: ["1m", "3m", "5m", "15m", "30m"],
   // Selalu ikut dianalisis di luar top koin (emas).
   EXTRA_SYMBOLS: ["XAUUSDT"],
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",

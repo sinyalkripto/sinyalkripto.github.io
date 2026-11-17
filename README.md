@@ -240,6 +240,15 @@ batas TP 0,4%, retest wajib level atau "candle atau level". **Catatan jujur:** d
 di periode latih (Des–Jul) dengan setelan apa pun yang diuji; perubahan ini mengurangi ruginya dan menggandakan
 sinyal, tapi sampelnya kecil (3 koin). Pantau hasil live-nya.
 
+### Koin tambahan di timeframe kecil (17 Nov 2026)
+
+Timeframe 1m, 3m, 5m, 15m, dan 30m sekarang memindai **100 koin teratas** (`CONFIG.TOP_COINS_FAST`), bukan 60. Koin
+peringkat 61–100 hanya dianalisis di timeframe itu (plus 4 jam untuk filter tren), tidak tampil di daftar koin, tapi
+sinyalnya muncul di daftar sinyal. 1 jam dan 4 jam tetap 60 koin. Supaya tidak kena batas API Binance, candle diambil
+penuh sekali saat situs dibuka, lalu tiap candle tutup cukup 20 candle terakhir yang disambung ke data lama.
+Ingat: timeframe di bawah 1 jam masih **eksperimen**; di uji historis belum untung bersih setelah biaya (15m/30m PF
+0,65–0,86 di 15 koin besar), jadi tambahan sinyal ini belum tentu menambah untung.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
