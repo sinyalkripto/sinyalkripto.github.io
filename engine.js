@@ -103,6 +103,12 @@ export const CONFIG = {
   // Filter lain (hindari pola reversal, ruang ke resistance, wajib di support, pullback + candle, 4 jam)
   // tidak konsisten di kedua kelompok koin, jadi tidak dipakai.
   PATTERNS: { "1h": { confirm: "candle", candles: ["engulfing", "pinbar", "tweezer"], setups: ["retest"] } },
+  // Koin besar (Nov 2026, tahap 6): BTC, ETH, BNB geraknya pelan dan dengan filter di atas hanya dapat ±1 sinyal
+  // per minggu per koin. Untuk koin ini wajib-pola diganti jadi "tolak pola lawan": sinyal tetap diambil, kecuali
+  // candle sinyalnya engulfing/pin bar/tweezer berlawanan arah. Uji Des 2025–Nov 2026 (3 koin): sinyal 0,5 → 1,05
+  // per hari, PF latih 0,61 → 0,90, PF uji 2,68 → 2,40, total untung uji +6% → +17%. Kosongkan untuk mematikan.
+  MAJORS: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+  PATTERNS_MAJORS: { "1h": { avoidOpposite: true, candles: ["engulfing", "pinbar", "tweezer"] } },
   EXIT_ON_SELL_SIGNAL: false,
   FEE_PERCENT: 0.05,
 };
@@ -180,7 +186,9 @@ export function alignTrend(candles, trendCandles, ema200 = false) {
 export const SETUP_LABEL = { pullback: "Pullback", retest: "Breakout-retest", range: "Range" };
 export const setupsFor = (interval) => C.SETUPS[interval] || C.DEFAULT_SETUPS;
 /** Aturan exit pullback/retest per timeframe: {tp, sl (kelipatan ATR), breakevenAt (bagian jarak TP) atau null}. */
-export const exitFor = (interval) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), trend200: !!C.TREND_EMA200_4H?.[interval], patterns: C.PATTERNS?.[interval] || null });
+export const exitFor = (interval, symbol = null) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), trend200: !!C.TREND_EMA200_4H?.[interval], patterns: patternsFor(interval, symbol) });
+/** Filter pola per timeframe; koin di CONFIG.MAJORS memakai CONFIG.PATTERNS_MAJORS kalau ada untuk timeframe itu. */
+export const patternsFor = (interval, symbol = null) => (symbol && C.MAJORS?.includes(symbol) && C.PATTERNS_MAJORS?.[interval]) || C.PATTERNS?.[interval] || null;
 
 /** Rata-rata dan simpangan baku bergulir (populasi), NaN sebelum cukup data. */
 function rolling(values, period) {
@@ -618,7 +626,7 @@ export const baseAsset = (symbol) => symbol.replace(/USDT$/, "").replace(/^1000+
  */
 export function analyze(symbol, interval, candles, trendCandles = null) {
   const filter = usesFilter(interval) ? trendCandles : null;
-  const rows = addIndicators(candles, filter, filter ? C.MAX_STOP_LOSS_PERCENT : Infinity, setupsFor(interval), exitFor(interval));
+  const rows = addIndicators(candles, filter, filter ? C.MAX_STOP_LOSS_PERCENT : Infinity, setupsFor(interval), exitFor(interval, symbol));
   const result = { symbol, interval, rows, last: rows[rows.length - 1], sides: {} };
   for (const side of sides()) {
     const sim = simulate(rows, side, interval);

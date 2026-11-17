@@ -220,6 +220,26 @@ sedikit, total untung (jumlah % semua trade, tanpa leverage) di periode uji lebi
 sinyal lebih berkualitas dan modal lebih jarang terpakai, bukan menjamin untung total lebih besar. Pola lain
 tetap ditampilkan di halaman Pasar (bagian "Pola chart") sebagai bahan baca grafik.
 
+### Tahap 6: lebih banyak sinyal BTC, ETH, BNB (17 Nov 2026)
+
+Masalah: dengan filter tahap 5, BTC/ETH/BNB hanya dapat ±1 sinyal 1 jam per minggu per koin. Penyebab: filter pola
+memotong ±50% sinyal, dan di ±30% candle BTC/BNB target TP (1,25 ATR) di bawah batas 0,6%.
+
+Untuk koin di `CONFIG.MAJORS` (BTC, ETH, BNB), wajib-pola retest diganti `CONFIG.PATTERNS_MAJORS`: sinyal tetap diambil
+kecuali candle sinyalnya engulfing/pin bar/tweezer **berlawanan** arah. Koin lain tidak berubah.
+
+| 1 jam, 3 koin besar | Sinyal/hari latih | PF latih | Σ latih | Sinyal/hari uji | PF uji | Σ uji |
+|---|---|---|---|---|---|---|
+| Tahap 5 | 0,51 | 0,61 | −28% | 0,39 | 2,68 | +6% |
+| Filter pola dimatikan | 1,12 | 0,89 | −14% | 0,74 | 1,79 | +13% |
+| **Tolak pola lawan (dipakai)** | **1,05** | **0,90** | **−12%** | **0,70** | **2,40** | **+17%** |
+
+Yang dicoba dan tidak dipakai: 15m/30m dengan aturan 1 jam + tren 1 jam atau 4 jam (PF 0,65–0,86 di 3 koin besar,
+rugi juga di 12 koin besar lain), timeframe 2 jam (PF 1,14/1,54 di 3 koin besar tapi 0,98 latih di 55 koin lain),
+batas TP 0,4%, retest wajib level atau "candle atau level". **Catatan jujur:** di 3 koin besar strategi ini tetap rugi
+di periode latih (Des–Jul) dengan setelan apa pun yang diuji; perubahan ini mengurangi ruginya dan menggandakan
+sinyal, tapi sampelnya kecil (3 koin). Pantau hasil live-nya.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
