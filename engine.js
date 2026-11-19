@@ -122,6 +122,15 @@ export const CONFIG = {
   // move24h % dalam 24 jam terakhir, atau ATR sekarang lebih dari atrRatio x rata-rata ATR 200 candle.
   // Tahap 7 (README): tidak membantu secara konsisten di 5m–4h, jadi tidak dipakai (null = mati).
   VOL_FILTER: { move24h: null, atrRatio: null },
+  // Filter pantulan per timeframe (tahap 9, kasus short HUMA 19 Nov 2026). Opsi (n = jumlah candle, default 10):
+  // volX: lewati sinyal kalau ada candle dengan volume > volX x rata-rata volume (EMA 100) dalam n candle terakhir
+  //   (lonjakan volume = koin baru dipompa/didump, arah gampang berbalik). Berlaku untuk long dan short.
+  // rsiExt: SHORT dilewati kalau RSI terendah n candle < rsiExt (LONG: tertinggi > 100 - rsiExt); emaAtr: harga
+  //   lebih dari emaAtr ATR dari EMA 200; bounceAtr: harga sudah lebih dari bounceAtr ATR dari low/high n candle;
+  //   sides: ["short"] untuk satu arah saja. Ketiganya diuji, tidak konsisten, jadi tidak dipakai.
+  // Tahap 9 (README, riset/uji-tahap9.mjs, 153 koin, Des 2025–19 Nov 2026): volume > 8x di 4 jam menaikkan PF di
+  // kedua kelompok koin, latih dan uji, dan 9 dari 12 bulan; sinyal 4 jam turun ±8%. Di 1 jam tidak membantu.
+  BOUNCE_FILTER: { "4h": { volX: 8 } },
   // Filter arah BTC untuk timeframe di tfs: long hanya kalau BTC 1 jam naik (EMA 20 > EMA 50), short hanya
   // kalau BTC 1 jam turun. BTC sendiri tidak difilter. Tahap 7 (README, 108 koin, Des 2025–18 Nov 2026):
   // 1 jam PF naik di kedua kelompok koin, latih dan uji, dan 11 dari 12 bulan; sinyal turun ±26%.
@@ -139,7 +148,7 @@ export const CONFIG = {
 
 const C = CONFIG;
 // Versi aturan sinyal; dicatat di tiap trade "Hasil live" supaya evaluasi bisa dipisah per versi.
-export const ENGINE_VERSION = "tahap8";
+export const ENGINE_VERSION = "tahap9";
 export const INTERVAL_MS = { "1s": 1e3, "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------
@@ -251,6 +260,19 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
   const atrAvg = vf.atrRatio ? ema(a, 200) : null;
   const wild = (i) => (vf.move24h && n24 && i >= n24 && Math.abs(close[i] / close[i - n24] - 1) * 100 > vf.move24h)
     || (vf.atrRatio && i >= 200 && a[i] > vf.atrRatio * atrAvg[i - 1]);
+  const bf = C.BOUNCE_FILTER?.[exit.interval] || C.BOUNCE_FILTER?.all || {};
+  const bN = bf.n || 10;
+  const vAvg = bf.volX ? ema(candles.map((k) => k.volume), 100) : null;
+  /** Sinyal arah long/short ini melawan pantulan tajam (CONFIG.BOUNCE_FILTER)? */
+  const bounced = (i, long) => {
+    if (bf.sides && !bf.sides.includes(long ? "long" : "short")) return false;
+    const from = Math.max(0, i - bN + 1);
+    if (bf.rsiExt) { let e = long ? -Infinity : Infinity; for (let j = from; j <= i; j++) e = long ? Math.max(e, r[j]) : Math.min(e, r[j]); if (long ? e > 100 - bf.rsiExt : e < bf.rsiExt) return true; }
+    if (bf.emaAtr && (long ? close[i] - emaTrend[i] : emaTrend[i] - close[i]) > bf.emaAtr * a[i]) return true;
+    if (bf.volX && i > 100) { let m = 0; for (let j = from; j <= i; j++) m = Math.max(m, candles[j].volume); if (m > bf.volX * vAvg[from - 1]) return true; }
+    if (bf.bounceAtr) { let e = long ? -Infinity : Infinity; for (let j = from; j <= i; j++) e = long ? Math.max(e, candles[j].high) : Math.min(e, candles[j].low); if ((long ? e - close[i] : close[i] - e) > bf.bounceAtr * a[i]) return true; }
+    return false;
+  };
   const shortOn = C.ENABLE_SHORT;
   const useRetest = setups.includes("retest"), useRange = setups.includes("range");
   const bb = useRange ? rolling(close, C.BB_PERIOD) : null;
@@ -335,7 +357,7 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
     // Satu sinyal per candle: setup pertama (urutan CONFIG.SETUPS) yang terpenuhi dan lolos filter pola.
     const calm = !wild(i);
     const btcOk = (long) => !btc || btc[i] === (long ? "naik" : "turun");
-    const pick = found.filter((f) => calm && btcOk(f[0] === "BELI") && polaOk(i, f[0] === "BELI", f[3] / a[i], f[1])).sort((p, q) => setups.indexOf(p[1]) - setups.indexOf(q[1]))[0];
+    const pick = found.filter((f) => calm && btcOk(f[0] === "BELI") && !bounced(i, f[0] === "BELI") && polaOk(i, f[0] === "BELI", f[3] / a[i], f[1])).sort((p, q) => setups.indexOf(p[1]) - setups.indexOf(q[1]))[0];
     const [signal, setup, sl, tp, maxHold, breakevenAt] = pick || ["TAHAN", null, slDist, tpDist, C.MAX_HOLD_CANDLES, null];
     return {
       ...k, emaFast: emaFast[i], emaSlow: emaSlow[i], emaTrend: emaTrend[i], rsi: r[i], atr: a[i], adx: x[i],

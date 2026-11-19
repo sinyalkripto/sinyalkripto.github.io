@@ -8,7 +8,8 @@ Setelan terbaru (tahap 3 dan 4, lihat di bawah): 1 jam memakai TP 1,25 ATR, SL d
 dan tren 4 jam harus searah EMA 200 4 jam. Sinyal breakout-retest 1 jam wajib dikonfirmasi pola candlestick
 searah (engulfing, pin bar, atau tweezer; tahap 5). 4 jam hanya setup pullback. Sejak tahap 7, sinyal 1 jam juga wajib searah
 BTC 1 jam (EMA 20 vs EMA 50), dan timeframe 1m/3m dimatikan. Sejak tahap 8, sinyal 1 jam wajib didukung minimal 3 koin
-searah di candle yang sama, dan TP 1 jam 0,75 ATR (BTC/ETH/BNB tetap 1,25 ATR, tanpa konsensus).
+searah di candle yang sama, dan TP 1 jam 0,75 ATR (BTC/ETH/BNB tetap 1,25 ATR, tanpa konsensus). Sejak tahap 9, sinyal
+4 jam dilewati kalau dalam 10 candle terakhir ada lonjakan volume lebih dari 8x rata-rata (koin baru dipompa atau didump).
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
@@ -325,6 +326,31 @@ sedikit naik (+257% → +272%). Jadi ini memilih win rate dan profit factor yang
 lebih kecil. Sinyal yang didukung banyak koin berarti banyak posisi searah sekaligus: kalau pasar berbalik, semuanya bisa
 kena SL bareng. Di situs, jumlah koin dihitung dari 60 koin utama, jadi sinyal 1 jam bisa muncul sedikit telat waktu situs
 baru dibuka (menunggu semua koin termuat). Versi ≥2 koin + TP 1 ATR bisa dipakai lagi dengan mengubah `CONSENSUS` dan `EXITS`.
+
+
+### Tahap 9: filter lonjakan volume di 4 jam (19 Nov 2026)
+
+Kasus: sinyal short 4 jam di HUMA tepat setelah koin itu dipompa dari 0,0063 ke 0,0098 (+55%) dengan volume sampai 17x
+rata-rata. Setup pullback short melihatnya sebagai "koreksi di tren turun", padahal tren turunnya baru saja patah.
+Filter gerak 24 jam dan ATR (tahap 7) tidak konsisten, jadi dicoba empat pendekatan lain lewat `CONFIG.BOUNCE_FILTER`:
+RSI baru oversold ekstrem, harga terlalu jauh dari EMA 200, harga sudah memantul jauh dari low, dan lonjakan volume.
+
+Uji (`riset/uji-tahap9.mjs`, data Binance Futures, 153 koin di 4 jam: kelompok 1 = peringkat volume Okt 2026 1–60,
+kelompok 2 = 61+; latih Des 2025–Jul 2026, uji Agu–19 Nov 2026; long dan short, biaya 0,05%):
+
+| 4 jam | Latih 1 | Uji 1 | Latih 2 | Uji 2 |
+|---|---|---|---|---|
+| Tahap 8 | 414 trade, PF 1,11, Σ +90% | 184, PF 1,02, +13% | 609, PF 0,99, −15% | 306, PF 1,25, +164% |
+| **Volume > 8x dalam 10 candle (dipakai)** | **386, PF 1,18, +123%** | **176, PF 1,17, +70%** | **537, PF 1,01, +14%** | **281, PF 1,40, +214%** |
+| RSI oversold < 25 | PF 1,15 | 1,13 | 0,99 | 1,33 |
+| Jauh dari EMA 200 > 8 ATR | 1,09 | 0,99 | 1,03 | 1,25 |
+| Sudah memantul > 3 ATR | 1,10 | 0,79 | 0,95 | 1,39 |
+
+- Batas volume 6x–12x dan jendela 5–20 candle hampir semuanya lebih baik dari tahap 8 di keempat kolom,
+  jadi hasilnya tidak bergantung pada satu angka (pengecualian: 6x di latih 2 dan 12x di latih 1). Per bulan (semua koin), PF sama atau lebih baik di 9 dari 12 bulan.
+- Di 1 jam filter ini tidak membantu (PF latih turun di kedua kelompok), jadi hanya 4 jam.
+- **Catatan jujur.** Sinyal short HUMA 17 Nov (volume 17x) yang ikut terbuang justru kena TP; filter ini memperbaiki rata-rata,
+  bukan setiap kasus. Kenaikannya di kelompok 2 (latih) kecil (PF 0,99 → 1,01), dan 4 jam tetap timeframe dengan PF paling tipis.
 
 ## Di situs
 
