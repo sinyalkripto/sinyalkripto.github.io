@@ -70,8 +70,8 @@ export const CONFIG = {
   // Stop loss 1 jam (tahap 4): di balik swing low/high 20 candle terakhir (support/resistance terdekat)
   // + 0,5 ATR, minimal 2 ATR (sl) dan maksimal 4 ATR (slMax). Jadi SL tidak mepet ke harga masuk
   // kalau support/resistance-nya lebih jauh. Kena SL penuh turun dari ±18% ke ±11% trade.
-  // Tahap 8: TP 1 jam 1,25 -> 1 ATR (bersama filter konsensus, lihat CONSENSUS).
-  EXITS: { "1h": { tp: 1, sl: 2, breakevenAt: 0.4, slSwing: 20, slBuffer: 0.5, slMax: 4 } },
+  // Tahap 8: TP 1 jam 1,25 -> 0,75 ATR (bersama filter konsensus, lihat CONSENSUS).
+  EXITS: { "1h": { tp: 0.75, sl: 2, breakevenAt: 0.4, slSwing: 20, slBuffer: 0.5, slMax: 4 } },
   // Filter tambahan per timeframe: tren 4 jam juga harus searah EMA 200 4 jam (harga 4 jam di atas EMA 200
   // untuk long, di bawah untuk short). Membuang ±12% sinyal 1 jam yang paling lemah.
   TREND_EMA200_4H: { "1h": true },
@@ -115,8 +115,8 @@ export const CONFIG = {
   // per hari, PF latih 0,61 → 0,90, PF uji 2,68 → 2,40, total untung uji +6% → +17%. Kosongkan untuk mematikan.
   MAJORS: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
   PATTERNS_MAJORS: { "1h": { avoidOpposite: true, candles: ["engulfing", "pinbar", "tweezer"] } },
-  // Tahap 8: koin besar tetap memakai TP 1,25 ATR dan tidak ikut filter konsensus. Di BTC/ETH/BNB konsensus + TP 1 ATR
-  // menurunkan PF 1 jam dari 1,08 ke 0,70 (313 → 161 trade, Des 2025–18 Nov 2026).
+  // Tahap 8: koin besar tetap memakai TP 1,25 ATR dan tidak ikut filter konsensus. Di BTC/ETH/BNB konsensus 2 koin + TP 1 ATR
+  // sudah menurunkan PF 1 jam dari 1,08 ke 0,70 (313 → 161 trade, Des 2025–18 Nov 2026).
   EXITS_MAJORS: { "1h": { tp: 1.25 } },
   // Filter koin liar (evaluasi live 14–19 Nov 2026): lewati sinyal kalau harga sudah bergerak lebih dari
   // move24h % dalam 24 jam terakhir, atau ATR sekarang lebih dari atrRatio x rata-rata ATR 200 candle.
@@ -129,10 +129,10 @@ export const CONFIG = {
   BTC_FILTER: { tfs: ["1h"], symbol: "BTCUSDT", interval: "1h" },
   // Konsensus per timeframe (tahap 8): sinyal hanya diambil kalau di candle yang sama minimal sekian koin yang
   // dipantau memberi sinyal searah (dihitung dari semua koin, lihat signalCounts/applyConsensus). Kosong = mati.
-  // Tahap 8 (README, 60 koin teratas + 48 koin lain, Des 2025–18 Nov 2026): minimal 2 koin + TP 1 ATR menaikkan
-  // win rate 1 jam (impas tidak dihitung) dari 74%/82% ke 81%/88% (latih/uji) dan PF dari 1,21/1,73 ke 1,51/1,98;
-  // sinyal turun dari ±9,5 ke ±6 per hari.
-  CONSENSUS: { "1h": 2 },
+  // Tahap 8 (README, 60 koin teratas + 48 koin lain, Des 2025–18 Nov 2026): minimal 3 koin + TP 0,75 ATR menaikkan
+  // win rate 1 jam (impas tidak dihitung) dari 74%/82% ke 85%/90% (latih/uji) dan PF dari 1,21/1,73 ke 1,74/2,25;
+  // sinyal turun dari ±9,5 ke ±4 per hari.
+  CONSENSUS: { "1h": 3 },
   EXIT_ON_SELL_SIGNAL: false,
   FEE_PERCENT: 0.05,
 };
