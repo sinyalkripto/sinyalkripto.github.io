@@ -1,6 +1,6 @@
 import {
-  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, SETUP_LABEL, setupsFor, exitFor,
-} from "./engine.js?v=18";
+  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, usesBtcFilter, ENGINE_VERSION, SETUP_LABEL, setupsFor, exitFor,
+} from "./engine.js?v=19";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 import { polaName } from "./pola.js?v=1";
 
@@ -152,10 +152,13 @@ function compute(sym, tf) {
   if (!d) return;
   const trend = usesFilter(tf) ? S.data[sym]?.[CONFIG.TREND_FILTER]?.closed : null;
   if (usesFilter(tf) && !trend) return;
+  // Filter arah BTC (CONFIG.BTC_FILTER). BTC dimuat paling awal; kalau gagal, sinyal tetap dihitung tanpa
+  // filter ini, lalu dihitung ulang begitu candle BTC 1 jam tersedia (lihat load()).
+  const btc = usesBtcFilter(sym, tf) ? S.data[CONFIG.BTC_FILTER.symbol]?.[CONFIG.BTC_FILTER.interval]?.closed : null;
   // Koin tambahan (peringkat 61–100) hanya menghasilkan sinyal di timeframe kecil, kecuali sedang dibuka di grafik.
   if (sym !== S.sel && !CONFIG.FAST_TIMEFRAMES.includes(tf) && S.fastOnly.some((x) => x.symbol === sym)) return;
   S.res[sym] ??= {};
-  S.res[sym][tf] = analyze(sym, tf, d.closed, trend);
+  S.res[sym][tf] = analyze(sym, tf, d.closed, trend, btc);
 }
 
 // Ambil ulang candle: kalau data lama sudah ada, cukup 20 candle terakhir lalu disambung (bobot API jauh lebih kecil,
@@ -175,6 +178,10 @@ async function load(sym, tf) {
   S.data[sym][tf] = k;
   if (tf === CONFIG.TREND_FILTER) TFS.forEach((t) => compute(sym, t));
   else compute(sym, tf);
+  // Candle BTC 1 jam baru: hitung ulang timeframe yang memakai filter arah BTC di semua koin.
+  if (sym === CONFIG.BTC_FILTER?.symbol && tf === CONFIG.BTC_FILTER.interval) {
+    for (const other of Object.keys(S.data)) if (other !== sym) for (const t of CONFIG.BTC_FILTER.tfs) compute(other, t);
+  }
 }
 
 let renderQueued = false;
@@ -202,7 +209,8 @@ function recordLive() {
     if (t.open || t.entryTime < LIVE.start) continue;
     const key = `${t.sym}|${t.tf}|${t.side}|${t.entryTime}`;
     if (LIVE.trades[key]) continue;
-    LIVE.trades[key] = { sym: t.sym, tf: t.tf, side: t.side, entryTime: t.entryTime, result: t.result, ret: t.ret };
+    // v: versi mesin yang menghitung trade ini, rec: kapan dicatat (untuk evaluasi per versi).
+    LIVE.trades[key] = { sym: t.sym, tf: t.tf, side: t.side, setup: t.setup ?? null, entryTime: t.entryTime, result: t.result, ret: t.ret, v: ENGINE_VERSION, rec: Date.now() };
     changed = true;
   }
   if (changed) saveLive();
@@ -215,19 +223,33 @@ function renderLive() {
     const ts = list.filter((t) => t.tf === tf);
     const bt = Object.values(S.res).flatMap((r) => (r[tf] ? sides().flatMap((sd) => r[tf].sides[sd].closed) : []));
     if (!ts.length && tf !== MAIN_TF) continue;
+    // Win rate dihitung dari trade yang kena TP (atau ditutup waktu dengan untung); "impas" (SL sudah digeser
+    // ke harga masuk) dipisah, karena untungnya cuma ±0,02% dan bukan kemenangan sungguhan.
     const st = (arr) => {
-      const n = arr.length, w = arr.filter((t) => t.ret > 0).length;
+      const n = arr.length, be = arr.filter((t) => t.result === "BE").length, w = arr.filter((t) => t.result !== "BE" && t.ret > 0).length;
       const g = arr.filter((t) => t.ret > 0).reduce((a, t) => a + t.ret, 0), l = -arr.filter((t) => t.ret <= 0).reduce((a, t) => a + t.ret, 0);
-      return { n, win: n ? w / n * 100 : NaN, pf: l ? g / l : g ? Infinity : NaN };
+      return { n, be, w, lose: n - be - w, win: n - be ? w / (n - be) * 100 : NaN, pf: l ? g / l : g ? Infinity : NaN };
     };
     const lv = st(ts), b = st(bt);
-    const f = (x) => (x.n ? `win ${nf(0).format(x.win)}% · PF ${x.pf === Infinity ? "∞" : Number.isFinite(x.pf) ? nf(2).format(x.pf) : "–"}` : "–");
-    cards.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]}${tfTag(tf)}</span><b>${lv.n ? f(lv) : "Belum ada"}</b><span class="muted" style="font-size:13px">${lv.n} trade live · backtest: ${f(b)}</span></div>`);
+    const f = (x) => (x.n ? `win ${Number.isFinite(x.win) ? nf(0).format(x.win) + "%" : "–"} · PF ${x.pf === Infinity ? "∞" : Number.isFinite(x.pf) ? nf(2).format(x.pf) : "–"}` : "–");
+    cards.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]}${tfTag(tf)}</span><b>${lv.n ? f(lv) : "Belum ada"}</b><span class="muted" style="font-size:13px">${lv.n ? `${lv.w} TP · ${lv.be} impas · ${lv.lose} rugi` : "0 trade live"}</span><span class="muted" style="font-size:13px">backtest: ${f(b)}${b.n ? ` · ${nf(0).format(b.be / b.n * 100)}% impas` : ""}</span></div>`);
   }
   $("#live").innerHTML = cards.join("") || `<p class="empty">Belum ada sinyal yang selesai sejak pelacakan dimulai.</p>`;
-  $("#live-sub").textContent = `Sinyal yang muncul sejak ${fmtTime(LIVE.start)} WIB dan sudah selesai (kena TP, SL, atau batas waktu), dicatat di browser ini saja. Biarkan situs terbuka atau buka lagi tiap hari selama 1–2 minggu, lalu bandingkan dengan angka backtest. Kalau jauh di bawah backtest, strategi perlu dicek ulang.`;
+  $("#live-sub").textContent = `Sinyal yang muncul sejak ${fmtTime(LIVE.start)} WIB dan sudah selesai (kena TP, SL, atau batas waktu), dicatat di browser ini saja. Win rate tidak menghitung trade impas (SL sudah digeser ke harga masuk), karena untungnya cuma ±0,02%. Biarkan situs terbuka atau buka lagi tiap hari selama 1–2 minggu, lalu bandingkan dengan angka backtest. Kalau jauh di bawah backtest, strategi perlu dicek ulang.`;
 }
 $("#live-reset")?.addEventListener("click", () => { LIVE.start = Date.now(); LIVE.trades = {}; saveLive(); renderLive(); });
+// Ekspor CSV: semua trade live (termasuk timeframe yang sudah dimatikan), waktu dalam WIB.
+$("#live-export")?.addEventListener("click", () => {
+  const wib = (ms) => (ms ? new Date(ms + 7 * 36e5).toISOString().slice(0, 16).replace("T", " ") : "");
+  const rows = Object.values(LIVE.trades).sort((a, b) => a.entryTime - b.entryTime)
+    .map((t) => [t.sym, t.tf, t.side, t.setup ?? "", wib(t.entryTime), t.result, (t.ret * 100).toFixed(3), t.v ?? "", wib(t.rec)].join(","));
+  const csv = ["koin,timeframe,arah,setup,masuk_wib,hasil,untung_persen,versi_mesin,dicatat_wib", ...rows].join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `hasil-live-${new Date(Date.now() + 7 * 36e5).toISOString().slice(0, 10)}.csv`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
 
 function renderAll() {
   renderKpis(); renderPositions(); renderSignals(); renderBacktest(); renderLive();
@@ -247,6 +269,9 @@ async function init() {
     renderCoins();
     splashProgress(30, `Membaca harga ${S.symbols.length} koin…`);
     let done = 0;
+    // BTC dulu: dipakai filter arah BTC (CONFIG.BTC_FILTER) untuk koin lain.
+    const btcSym = CONFIG.BTC_FILTER?.tfs?.length ? CONFIG.BTC_FILTER.symbol : null;
+    if (btcSym && S.info[btcSym]) { try { await load(btcSym, "4h"); await load(btcSym, CONFIG.BTC_FILTER.interval); } catch (e) { console.error(e); } }
     const first = [];
     for (const { symbol } of S.symbols) {
       first.push(async () => { await load(symbol, "4h"); await load(symbol, "1h"); done++; splashProgress(30 + done / S.symbols.length * 60, "Menghitung sinyal…"); scheduleRender(); });
@@ -256,7 +281,7 @@ async function init() {
     maybeHideSplash(true);
     renderAll();
     const rest = [];
-    for (const tf of ["30m", "15m", "5m", "3m", "1m"]) for (const { symbol } of S.symbols) rest.push(async () => { await load(symbol, tf); scheduleRender(); });
+    for (const tf of ["30m", "15m", "5m", "3m", "1m"].filter((t) => TFS.includes(t))) for (const { symbol } of S.symbols) rest.push(async () => { await load(symbol, tf); scheduleRender(); });
     // Koin tambahan khusus timeframe kecil: 4 jam dulu (filter tren), lalu timeframe kecil.
     for (const { symbol } of S.fastOnly) rest.push(async () => { await load(symbol, "4h"); for (const tf of CONFIG.FAST_TIMEFRAMES) await load(symbol, tf); scheduleRender(); });
     await pool(rest, 4);
@@ -698,7 +723,7 @@ function renderBacktest() {
     html.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]} · ${side === "long" ? "Long" : "Short"}${tfTag(tf)}</span><b class="${avg >= 0 ? "up" : "down"}">${fmtPct(avg, 1)}</b><span class="muted" style="font-size:13px">Win ${Number.isNaN(win) ? "–" : nf(0).format(win) + "%"} dari ${n} trade · PF ${pf === Infinity ? "∞ (belum ada rugi)" : Number.isFinite(pf) ? nf(2).format(pf) : "–"}</span><span class="muted" style="font-size:13px">${rs.filter((x) => x.return > 0).length}/${rs.length} koin untung${tm.samples ? ` · TP ± ${fmtDur(tm.median)}` : ""}</span></div>`);
   }
   $("#bt").innerHTML = html.join("") || `<p class="empty">Memuat…</p>`;
-  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1m ≈ 17 jam, 5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi. PF (profit factor) = total untung dibagi total rugi; di atas 1 berarti untung bersih. Win rate tinggi belum tentu untung, karena TP sengaja lebih dekat dari SL. ★ 1j = timeframe utama (satu-satunya yang untung bersih di uji 6 bulan); * eksperimen = di uji historis belum untung bersih setelah biaya.";
+  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi. PF (profit factor) = total untung dibagi total rugi; di atas 1 berarti untung bersih. Win rate tinggi belum tentu untung, karena TP sengaja lebih dekat dari SL. ★ 1j = timeframe utama (satu-satunya yang untung bersih di uji 6 bulan); * eksperimen = di uji historis belum untung bersih setelah biaya.";
 }
 
 // ---------- Analisis teknikal: arah LONG/SHORT per timeframe ----------

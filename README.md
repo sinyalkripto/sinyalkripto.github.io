@@ -6,7 +6,8 @@ Binance Futures (token saham/komoditas dan `CONFIG.BLOCKLIST` tidak ikut).
 Setelan terbaru (tahap 3 dan 4, lihat di bawah): 1 jam memakai TP 1,25 ATR, SL di balik swing low/high 20 candle
 (+0,5 ATR, antara 2 dan 4 ATR), breakeven di 40% jalan ke TP,
 dan tren 4 jam harus searah EMA 200 4 jam. Sinyal breakout-retest 1 jam wajib dikonfirmasi pola candlestick
-searah (engulfing, pin bar, atau tweezer; tahap 5). 4 jam hanya setup pullback.
+searah (engulfing, pin bar, atau tweezer; tahap 5). 4 jam hanya setup pullback. Sejak tahap 7, sinyal 1 jam juga wajib searah
+BTC 1 jam (EMA 20 vs EMA 50), dan timeframe 1m/3m dimatikan.
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
@@ -249,13 +250,59 @@ penuh sekali saat situs dibuka, lalu tiap candle tutup cukup 20 candle terakhir 
 Ingat: timeframe di bawah 1 jam masih **eksperimen**; di uji historis belum untung bersih setelah biaya (15m/30m PF
 0,65–0,86 di 15 koin besar), jadi tambahan sinyal ini belum tentu menambah untung.
 
+### Tahap 7: evaluasi hasil live dan filter arah BTC (19 Nov 2026)
+
+**Hasil live** (catatan "Hasil live" di browser pengguna, 606 trade selesai, 14–19 Nov 2026, campuran beberapa versi mesin):
+
+| Timeframe | Trade | Win (impas tidak dihitung menang) | PF | Σ |
+|---|---|---|---|---|
+| 1m | 36 | 64% | 0,81 | −6% |
+| 3m | 71 | 65% | 0,59 | −27% |
+| 5m | 119 | 84% | 2,20 | +50% |
+| 15m | 178 | 77% | 1,51 | +48% |
+| 30m | 98 | 72% | 1,30 | +21% |
+| 1j | 98 | 39% TP, 56% impas | 2,46 | +49% |
+| 4j | 6 | 50% | 0,62 | −11% |
+
+- Untung numpuk di 14–16 Nov (pasar dump, 90% sinyal short); 17–19 Nov rugi (PF 0,47–0,80) waktu pasar mantul.
+- Win rate 1 jam "95%" di situs lama sebagian besar trade impas (breakeven). Rata-rata SL 1 jam −6,7% vs TP +2,1%.
+- Satu koin (MMT, naik ±120% pada 18 Nov) menyumbang −44% di 17–19 Nov.
+- Sinyal yang muncul sendirian (1 koin di candle itu) impas (PF 0,99); sinyal yang muncul bareng ≥4 koin PF 2–3,5,
+  tapi kebanyakan dari hari dump 15 Nov, jadi belum dipakai.
+
+**Uji historis** (`riset/uji-tahap7.mjs`, data Binance Futures dari arsip resmi, 108 koin; 1j/4j latih Des 2025–Jul 2026
+dan uji Agu–18 Nov 2026; 5m–30m latih Agu–Sep, uji Okt–18 Nov 2026; kelompok 1 = peringkat volume 1–50, kelompok 2 = 51+):
+
+| 1 jam | Trade latih (1+2) | PF latih 1 | PF uji 1 | PF latih 2 | PF uji 2 |
+|---|---|---|---|---|---|
+| Tahap 6 | 5.055 | 1,14 | 1,39 | 1,01 | 1,39 |
+| **+ BTC 1 jam searah (dipakai)** | **3.720** | **1,23** | **1,64** | **1,25** | **1,53** |
+
+Filter BTC: long hanya kalau BTC 1 jam naik (EMA 20 > EMA 50), short hanya kalau BTC 1 jam turun. Sinyal 1 jam turun ±26%.
+PF per bulan lebih baik di 11 dari 12 bulan; bulan rugi turun dari 5 (Des, Mar, Apr, Jul, Okt) ke 2 (Des, Jul). Long dan short
+sama-sama naik (PF 1,15 → 1,35 dan 1,16 → 1,33). Ini beda dengan filter BTC tahap 2 (BTC di atas EMA 200, long saja) yang
+tidak dipakai.
+
+Yang diuji dan **tidak** dipakai:
+- Filter BTC di 5m, 15m, 30m, 4j: tidak konsisten (contoh 30m kelompok 1 latih PF 0,72 → 0,59, 4j latih 0,94 → 0,62).
+- Filter koin liar (`CONFIG.VOL_FILTER`): lewati sinyal kalau harga bergerak >10/15/20/30% dalam 24 jam, atau ATR >2/2,5/3×
+  rata-rata 200 candle. Tidak ada yang membantu di kedua kelompok koin, latih dan uji, di 5m–4j. Kode tetap ada (mati).
+
+**Perubahan lain:**
+- 1m dan 3m dimatikan (rugi di live dan di uji historis).
+- "Hasil live" sekarang memisah TP, impas, dan rugi; win rate tidak menghitung impas.
+- Tombol **Unduh CSV** di "Hasil live" (semua trade, waktu WIB, versi mesin). Tiap trade baru menyimpan versi mesin
+  (`ENGINE_VERSION`) dan kapan dicatat, supaya evaluasi berikutnya bisa dipisah per versi.
+- Catatan: "Hasil live" menghitung ulang sinyal dengan mesin yang sedang dipakai waktu situs dibuka, jadi trade yang terjadi
+  saat situs tertutup tetap tercatat, tapi dengan aturan versi saat dibuka.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
   ditandai **eksperimen** karena di uji historis belum untung bersih setelah biaya.
 - Bagian **Hasil live** mencatat sinyal yang muncul sejak pelacakan dimulai (di browser pengunjung,
-  localStorage), lalu menampilkan win rate dan profit factor-nya di samping angka backtest. Tombol
-  "Mulai ulang pelacakan" mengosongkan catatan.
+  localStorage), lalu menampilkan TP, impas, rugi, win rate, dan profit factor-nya di samping angka backtest.
+  "Unduh CSV" mengekspor semua trade; "Mulai ulang pelacakan" mengosongkan catatan.
 
 Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV dari crypto-signal-bot/data).
 
@@ -268,6 +315,7 @@ Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV d
 - `riset/unduh-data.py`: unduh candle Futures dari arsip resmi Binance (data.binance.vision lewat S3).
 - `riset/uji-tahap3.mjs`: uji setelan situs dengan pembagian latih/uji.
 - `riset/uji-pola.mjs`: uji filter pola chart (CONFIG.PATTERNS) dengan pembagian latih/uji.
+- `riset/uji-tahap7.mjs`: uji filter arah BTC dan filter koin liar per timeframe, dua kelompok koin.
 - `pola.js`: deteksi pola candlestick, support/resistance, reversal, dan continuation.
 - `riset/freqtrade/`: strategi yang sama untuk freqtrade (cek silang backtest, bisa jalan tanpa akses API bursa).
 

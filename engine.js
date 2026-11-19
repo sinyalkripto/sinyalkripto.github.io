@@ -11,7 +11,7 @@ export const CONFIG = {
   // Timeframe kecil (eksperimen) memindai lebih banyak koin: 100 koin teratas. Koin peringkat 61–100 hanya dianalisis
   // di FAST_TIMEFRAMES (plus 4 jam untuk filter tren), tidak muncul di daftar koin, tapi sinyalnya tampil.
   TOP_COINS_FAST: 100,
-  FAST_TIMEFRAMES: ["1m", "3m", "5m", "15m", "30m"],
+  FAST_TIMEFRAMES: ["5m", "15m", "30m"],
   // Selalu ikut dianalisis di luar top koin (emas).
   EXTRA_SYMBOLS: ["XAUUSDT"],
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
@@ -29,7 +29,8 @@ export const CONFIG = {
   // Tidak dianalisis dan tidak muncul di situs. Tambah atau hapus nama simbol di sini (format XXXUSDT).
   // NVDAUSDT dan SOXSUSDT adalah token saham/ETF, bukan kripto, dan sebelumnya lolos dari filter token saham.
   BLOCKLIST: ["JCTUSDT", "AKEUSDT", "SOXSUSDT", "AAVEUSDT", "LITUSDT", "NVDAUSDT", "ARIAUSDT", "NEARUSDT"],
-  TIMEFRAMES: ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "4h"],
+  // 1m dan 3m dimatikan (evaluasi live 14–19 Nov 2026: PF 0,81 dan 0,59, sama dengan uji historis).
+  TIMEFRAMES: ["1s", "5m", "15m", "30m", "1h", "4h"],
   CANDLE_LIMIT: 1500,
   // Timeframe kecil cukup 1000 candle (lebih ringan untuk batas API).
   FAST_LIMIT: 1000,
@@ -113,11 +114,22 @@ export const CONFIG = {
   // per hari, PF latih 0,61 → 0,90, PF uji 2,68 → 2,40, total untung uji +6% → +17%. Kosongkan untuk mematikan.
   MAJORS: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
   PATTERNS_MAJORS: { "1h": { avoidOpposite: true, candles: ["engulfing", "pinbar", "tweezer"] } },
+  // Filter koin liar (evaluasi live 14–19 Nov 2026): lewati sinyal kalau harga sudah bergerak lebih dari
+  // move24h % dalam 24 jam terakhir, atau ATR sekarang lebih dari atrRatio x rata-rata ATR 200 candle.
+  // Tahap 7 (README): tidak membantu secara konsisten di 5m–4h, jadi tidak dipakai (null = mati).
+  VOL_FILTER: { move24h: null, atrRatio: null },
+  // Filter arah BTC untuk timeframe di tfs: long hanya kalau BTC 1 jam naik (EMA 20 > EMA 50), short hanya
+  // kalau BTC 1 jam turun. BTC sendiri tidak difilter. Tahap 7 (README, 108 koin, Des 2025–18 Nov 2026):
+  // 1 jam PF naik di kedua kelompok koin, latih dan uji, dan 11 dari 12 bulan; sinyal turun ±26%.
+  // Di 5m/15m/30m/4h tidak membantu, jadi hanya 1 jam.
+  BTC_FILTER: { tfs: ["1h"], symbol: "BTCUSDT", interval: "1h" },
   EXIT_ON_SELL_SIGNAL: false,
   FEE_PERCENT: 0.05,
 };
 
 const C = CONFIG;
+// Versi aturan sinyal; dicatat di tiap trade "Hasil live" supaya evaluasi bisa dipisah per versi.
+export const ENGINE_VERSION = "tahap7";
 export const INTERVAL_MS = { "1s": 1e3, "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------
@@ -190,7 +202,7 @@ export function alignTrend(candles, trendCandles, ema200 = false) {
 export const SETUP_LABEL = { pullback: "Pullback", retest: "Breakout-retest", range: "Range" };
 export const setupsFor = (interval) => C.SETUPS[interval] || C.DEFAULT_SETUPS;
 /** Aturan exit pullback/retest per timeframe: {tp, sl (kelipatan ATR), breakevenAt (bagian jarak TP) atau null}. */
-export const exitFor = (interval, symbol = null) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), trend200: !!C.TREND_EMA200_4H?.[interval], patterns: patternsFor(interval, symbol) });
+export const exitFor = (interval, symbol = null) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), trend200: !!C.TREND_EMA200_4H?.[interval], patterns: patternsFor(interval, symbol), interval });
 /** Filter pola per timeframe; koin di CONFIG.MAJORS memakai CONFIG.PATTERNS_MAJORS kalau ada untuk timeframe itu. */
 export const patternsFor = (interval, symbol = null) => (symbol && C.MAJORS?.includes(symbol) && C.PATTERNS_MAJORS?.[interval]) || C.PATTERNS?.[interval] || null;
 
@@ -215,11 +227,19 @@ function rolling(values, period) {
  * - range: pantulan dari luar Bollinger Band saat pasar sideways (lihat CONFIG.RANGE_*).
  * Tiap baris membawa SL/TP dan batas lama posisi milik setup yang memicu sinyal di baris itu.
  */
-export function addIndicators(candles, trendCandles = null, maxSlPercent = trendCandles ? C.MAX_STOP_LOSS_PERCENT : Infinity, setups = C.DEFAULT_SETUPS, exit = exitFor(null)) {
+export function addIndicators(candles, trendCandles = null, maxSlPercent = trendCandles ? C.MAX_STOP_LOSS_PERCENT : Infinity, setups = C.DEFAULT_SETUPS, exit = exitFor(null), btcCandles = null) {
   const close = candles.map((k) => k.close);
   const emaFast = ema(close, C.EMA_FAST), emaSlow = ema(close, C.EMA_SLOW), emaTrend = ema(close, C.EMA_TREND);
   const r = rsi(close, C.RSI_PERIOD), a = atr(candles, C.ATR_PERIOD), x = adx(candles, C.ADX_PERIOD).adx;
   const trend = trendCandles ? alignTrend(candles, trendCandles, exit.trend200) : null;
+  // Arah BTC (CONFIG.BTC_FILTER) per candle, hanya candle BTC yang sudah close.
+  const btc = btcCandles?.length ? alignTrend(candles, btcCandles) : null;
+  // Filter koin liar (CONFIG.VOL_FILTER).
+  const vf = C.VOL_FILTER || {};
+  const n24 = exit.interval && INTERVAL_MS[exit.interval] ? Math.round(864e5 / INTERVAL_MS[exit.interval]) : 0;
+  const atrAvg = vf.atrRatio ? ema(a, 200) : null;
+  const wild = (i) => (vf.move24h && n24 && i >= n24 && Math.abs(close[i] / close[i - n24] - 1) * 100 > vf.move24h)
+    || (vf.atrRatio && i >= 200 && a[i] > vf.atrRatio * atrAvg[i - 1]);
   const shortOn = C.ENABLE_SHORT;
   const useRetest = setups.includes("retest"), useRange = setups.includes("range");
   const bb = useRange ? rolling(close, C.BB_PERIOD) : null;
@@ -302,7 +322,9 @@ export function addIndicators(candles, trendCandles = null, maxSlPercent = trend
     }
 
     // Satu sinyal per candle: setup pertama (urutan CONFIG.SETUPS) yang terpenuhi dan lolos filter pola.
-    const pick = found.filter((f) => polaOk(i, f[0] === "BELI", f[3] / a[i], f[1])).sort((p, q) => setups.indexOf(p[1]) - setups.indexOf(q[1]))[0];
+    const calm = !wild(i);
+    const btcOk = (long) => !btc || btc[i] === (long ? "naik" : "turun");
+    const pick = found.filter((f) => calm && btcOk(f[0] === "BELI") && polaOk(i, f[0] === "BELI", f[3] / a[i], f[1])).sort((p, q) => setups.indexOf(p[1]) - setups.indexOf(q[1]))[0];
     const [signal, setup, sl, tp, maxHold, breakevenAt] = pick || ["TAHAN", null, slDist, tpDist, C.MAX_HOLD_CANDLES, null];
     return {
       ...k, emaFast: emaFast[i], emaSlow: emaSlow[i], emaTrend: emaTrend[i], rsi: r[i], atr: a[i], adx: x[i],
@@ -628,9 +650,12 @@ export const baseAsset = (symbol) => symbol.replace(/USDT$/, "").replace(/^1000+
  * Analisis lengkap satu koin di satu timeframe: indikator, sinyal terakhir, posisi bot,
  * hasil backtest, dan perkiraan waktu TP. trendCandles wajib jika usesFilter(interval).
  */
-export function analyze(symbol, interval, candles, trendCandles = null) {
+export const usesBtcFilter = (symbol, interval) => !!C.BTC_FILTER?.tfs?.includes(interval) && symbol !== C.BTC_FILTER.symbol;
+
+export function analyze(symbol, interval, candles, trendCandles = null, btcCandles = null) {
   const filter = usesFilter(interval) ? trendCandles : null;
-  const rows = addIndicators(candles, filter, filter ? C.MAX_STOP_LOSS_PERCENT : Infinity, setupsFor(interval), exitFor(interval, symbol));
+  const btc = usesBtcFilter(symbol, interval) ? btcCandles : null;
+  const rows = addIndicators(candles, filter, filter ? C.MAX_STOP_LOSS_PERCENT : Infinity, setupsFor(interval), exitFor(interval, symbol), btc);
   const result = { symbol, interval, rows, last: rows[rows.length - 1], sides: {} };
   for (const side of sides()) {
     const sim = simulate(rows, side, interval);
