@@ -1,6 +1,6 @@
 // Riset jumlah koin: ambil riwayat panjang untuk koin bervolume terbesar, jalankan strategi
 // yang sama (engine.js), lalu ringkas sinyal per hari, win rate, dan profit factor per kelompok koin.
-import { CONFIG, SETUP_LABEL, analyze, connect, isCryptoSymbol } from "./engine.js?v=19";
+import { CONFIG, SETUP_LABEL, analyze, applyConsensus, connect, isCryptoSymbol, signalCounts } from "./engine.js?v=20";
 
 const DAYS = 180;              // jendela evaluasi
 const N_COINS = 100;           // kandidat koin teratas menurut volume
@@ -95,7 +95,7 @@ async function run() {
         // 4 jam: dianalisis tanpa filter tren di atasnya (sama seperti di situs).
         const r4 = analyze(job.s, "4h", c4, null);
         const trades4 = ["long", "short"].flatMap((side) => r4.sides[side].closed.map((x) => ({ t: x.entryTime, r: x.ret, s: side[0], k: x.setup })));
-        per[job.i] = { sym: job.s, rank: job.i + 1, start: c1[Math.min(c1.length - 1, 200)].time, trades, trades4 };
+        per[job.i] = { sym: job.s, rank: job.i + 1, start: c1[Math.min(c1.length - 1, 200)].time, trades, trades4, raw: r };
       } catch (e) { per[job.i] = { sym: job.s, rank: job.i + 1, error: String(e.message || e), trades: [], trades4: [] }; }
       done++;
       $("#bar i").style.width = `${done / coins.length * 100}%`;
@@ -103,6 +103,16 @@ async function run() {
     }
   }
   await Promise.all([worker(), worker(), worker(), worker()]);
+  // Filter konsensus (CONFIG.CONSENSUS, sama seperti di situs): jumlah koin searah dihitung dari koin utama
+  // (CONFIG.TOP_COINS teratas), lalu trade 1 jam semua koin dihitung ulang.
+  if (CONFIG.CONSENSUS?.["1h"]) {
+    const counts = signalCounts(per.slice(0, CONFIG.TOP_COINS).map((p) => p.raw).filter(Boolean));
+    for (const p of per) if (p.raw) {
+      const r = applyConsensus(p.raw, counts);
+      p.trades = ["long", "short"].flatMap((side) => r.sides[side].closed.map((x) => ({ t: x.entryTime, r: x.ret, s: side[0], k: x.setup })));
+    }
+  }
+  for (const p of per) delete p.raw;
 
   // Ringkasan per jumlah koin (urut volume, tanpa memilih koin berdasarkan hasil).
   const thirds = [0, 1, 2].map((k) => [from + (to - from) * k / 3, from + (to - from) * (k + 1) / 3]);

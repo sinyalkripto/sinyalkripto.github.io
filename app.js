@@ -1,6 +1,6 @@
 import {
-  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, usesBtcFilter, ENGINE_VERSION, SETUP_LABEL, setupsFor, exitFor,
-} from "./engine.js?v=19";
+  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, usesBtcFilter, ENGINE_VERSION, signalCounts, applyConsensus, SETUP_LABEL, setupsFor, exitFor,
+} from "./engine.js?v=20";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 import { polaName } from "./pola.js?v=1";
 
@@ -16,7 +16,7 @@ const EXPERIMENTAL = new Set(["1s", "1m", "3m", "5m", "15m", "30m"]);
 const tfNote = (tf) => (tf === MAIN_TF ? "utama" : EXPERIMENTAL.has(tf) ? "eksperimen" : "");
 const tfTag = (tf) => (tf === MAIN_TF ? ' <span class="tag ok" style="font-size:11px;padding:1px 6px">utama</span>' : EXPERIMENTAL.has(tf) ? ' <span class="tag warn" style="font-size:11px;padding:1px 6px">eksperimen</span>' : "");
 const S = {
-  symbols: [], fastOnly: [], info: {}, data: {}, res: {}, prices: {}, prevPrices: {},
+  symbols: [], fastOnly: [], info: {}, data: {}, res: {}, raw: {}, prices: {}, prevPrices: {},
   sel: "BTCUSDT", tf: "1h", ind: { ema: true, bb: false, vol: true, rsi: true, macd: true },
   sigTf: MAIN_TF, sigSide: "all", showAllPos: false, loadErr: {},
 };
@@ -158,7 +158,22 @@ function compute(sym, tf) {
   // Koin tambahan (peringkat 61–100) hanya menghasilkan sinyal di timeframe kecil, kecuali sedang dibuka di grafik.
   if (sym !== S.sel && !CONFIG.FAST_TIMEFRAMES.includes(tf) && S.fastOnly.some((x) => x.symbol === sym)) return;
   S.res[sym] ??= {};
-  S.res[sym][tf] = analyze(sym, tf, d.closed, trend, btc);
+  S.raw[sym] ??= {};
+  S.raw[sym][tf] = analyze(sym, tf, d.closed, trend, btc);
+  S.res[sym][tf] = S.raw[sym][tf];
+  if (CONFIG.CONSENSUS?.[tf]) consensusDirty.add(tf);
+}
+
+// Filter konsensus (CONFIG.CONSENSUS): sinyal dihitung ulang setelah semua koin punya hasil, karena butuh jumlah
+// koin yang memberi sinyal searah di candle yang sama. Dihitung dari koin utama (bukan koin tambahan timeframe kecil).
+const consensusDirty = new Set();
+function refreshConsensus() {
+  for (const tf of consensusDirty) {
+    const main = S.symbols.map((x) => x.symbol).filter((sym) => S.raw[sym]?.[tf]);
+    const counts = signalCounts(main.map((sym) => S.raw[sym][tf]));
+    for (const sym of Object.keys(S.raw)) if (S.raw[sym][tf]) S.res[sym][tf] = applyConsensus(S.raw[sym][tf], counts);
+  }
+  consensusDirty.clear();
 }
 
 // Ambil ulang candle: kalau data lama sudah ada, cukup 20 candle terakhir lalu disambung (bobot API jauh lebih kecil,
@@ -252,6 +267,7 @@ $("#live-export")?.addEventListener("click", () => {
 });
 
 function renderAll() {
+  refreshConsensus();
   renderKpis(); renderPositions(); renderSignals(); renderBacktest(); renderLive();
   if (S.res[S.sel]?.[S.tf]) { renderChart(); renderAnalysis(); } else renderTfDirections();
 }
@@ -407,6 +423,7 @@ function updateLive() {
   }
   if (S.prices.BTCUSDT) $("#hs-btc").textContent = "$" + fmtPrice(S.prices.BTCUSDT);
   updateChartLive();
+  refreshConsensus();
   renderPositions();
   renderActive();
 }

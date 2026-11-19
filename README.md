@@ -7,7 +7,8 @@ Setelan terbaru (tahap 3 dan 4, lihat di bawah): 1 jam memakai TP 1,25 ATR, SL d
 (+0,5 ATR, antara 2 dan 4 ATR), breakeven di 40% jalan ke TP,
 dan tren 4 jam harus searah EMA 200 4 jam. Sinyal breakout-retest 1 jam wajib dikonfirmasi pola candlestick
 searah (engulfing, pin bar, atau tweezer; tahap 5). 4 jam hanya setup pullback. Sejak tahap 7, sinyal 1 jam juga wajib searah
-BTC 1 jam (EMA 20 vs EMA 50), dan timeframe 1m/3m dimatikan.
+BTC 1 jam (EMA 20 vs EMA 50), dan timeframe 1m/3m dimatikan. Sejak tahap 8, sinyal 1 jam wajib didukung minimal 2 koin
+searah di candle yang sama, dan TP 1 jam 1 ATR (BTC/ETH/BNB tetap 1,25 ATR, tanpa konsensus).
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
@@ -295,6 +296,35 @@ Yang diuji dan **tidak** dipakai:
   (`ENGINE_VERSION`) dan kapan dicatat, supaya evaluasi berikutnya bisa dipisah per versi.
 - Catatan: "Hasil live" menghitung ulang sinyal dengan mesin yang sedang dipakai waktu situs dibuka, jadi trade yang terjadi
   saat situs tertutup tetap tercatat, tapi dengan aturan versi saat dibuka.
+
+### Tahap 8: konsensus antar koin + TP 1 ATR (19 Nov 2026)
+
+Permintaan: win rate 1 jam dinaikkan lagi. Dari evaluasi live (tahap 7), sinyal yang muncul sendirian di satu koin
+hasilnya impas, sedangkan sinyal yang muncul bareng di beberapa koin jauh lebih bagus. Sekarang sinyal 1 jam hanya
+diambil kalau **minimal 2 koin** yang dipantau memberi sinyal searah di candle yang sama (`CONFIG.CONSENSUS`), dan
+TP 1 jam diturunkan dari 1,25 ke **1 ATR**. BTC, ETH, BNB tidak berubah (tidak ikut konsensus, TP tetap 1,25 ATR),
+karena di 3 koin itu PF turun dari 1,08 ke 0,70.
+
+Uji (mesin di situs, konsensus dihitung di dalam kelompok koin itu sendiri, latih Des 2025–Jul 2026, uji Agu–18 Nov
+2026; win rate tidak menghitung impas):
+
+| 1 jam | Sinyal/hari latih | Win latih | PF latih | Sinyal/hari uji | Win uji | PF uji |
+|---|---|---|---|---|---|---|
+| 60 koin, tahap 7 | 9,4 | 74% | 1,21 | 9,5 | 82% | 1,73 |
+| **60 koin, tahap 8** | **6,8** | **81%** | **1,53** | **6,3** | **87%** | **2,02** |
+| 48 koin lain, tahap 7 | 5,9 | 74% | 1,28 | 6,3 | 76% | 1,40 |
+| 48 koin lain, tahap 8 | 3,1 | 82% | 1,80 | 3,3 | 82% | 1,62 |
+
+Win rate per bulan (60 koin) lebih tinggi di 10 dari 12 bulan; PF lebih baik di 9 dari 12 (lebih buruk di Feb, Apr, Sep).
+Varian lain: minimal 3 koin (win 78%/87%, PF 1,73/2,54, tapi sinyal tinggal 3,9/hari di periode uji), minimal 3 koin
++ TP 0,75 ATR (win 87%/91%, sinyal 3,5/hari), ADX 25/30, breakeven 30%, BTC 4 jam: tidak dipakai (sinyal terlalu sedikit
+atau tidak konsisten di kedua kelompok).
+
+**Catatan jujur.** Sinyal 1 jam turun ±1/3 (60 koin: ±9,5 → ±6 per hari), jadi total untung (jumlah % semua trade) di
+periode uji lebih kecil (+305% → +212%), di periode latih lebih besar (+257% → +309%). Sinyal yang didukung banyak koin
+berarti banyak posisi searah sekaligus: kalau pasar berbalik, semuanya bisa kena SL bareng. Di situs, jumlah koin
+dihitung dari 60 koin utama, jadi sinyal 1 jam bisa muncul sedikit telat waktu situs baru dibuka (menunggu semua koin
+termuat).
 
 ## Di situs
 

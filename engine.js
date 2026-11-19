@@ -70,7 +70,8 @@ export const CONFIG = {
   // Stop loss 1 jam (tahap 4): di balik swing low/high 20 candle terakhir (support/resistance terdekat)
   // + 0,5 ATR, minimal 2 ATR (sl) dan maksimal 4 ATR (slMax). Jadi SL tidak mepet ke harga masuk
   // kalau support/resistance-nya lebih jauh. Kena SL penuh turun dari ±18% ke ±11% trade.
-  EXITS: { "1h": { tp: 1.25, sl: 2, breakevenAt: 0.4, slSwing: 20, slBuffer: 0.5, slMax: 4 } },
+  // Tahap 8: TP 1 jam 1,25 -> 1 ATR (bersama filter konsensus, lihat CONSENSUS).
+  EXITS: { "1h": { tp: 1, sl: 2, breakevenAt: 0.4, slSwing: 20, slBuffer: 0.5, slMax: 4 } },
   // Filter tambahan per timeframe: tren 4 jam juga harus searah EMA 200 4 jam (harga 4 jam di atas EMA 200
   // untuk long, di bawah untuk short). Membuang ±12% sinyal 1 jam yang paling lemah.
   TREND_EMA200_4H: { "1h": true },
@@ -114,6 +115,9 @@ export const CONFIG = {
   // per hari, PF latih 0,61 → 0,90, PF uji 2,68 → 2,40, total untung uji +6% → +17%. Kosongkan untuk mematikan.
   MAJORS: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
   PATTERNS_MAJORS: { "1h": { avoidOpposite: true, candles: ["engulfing", "pinbar", "tweezer"] } },
+  // Tahap 8: koin besar tetap memakai TP 1,25 ATR dan tidak ikut filter konsensus. Di BTC/ETH/BNB konsensus + TP 1 ATR
+  // menurunkan PF 1 jam dari 1,08 ke 0,70 (313 → 161 trade, Des 2025–18 Nov 2026).
+  EXITS_MAJORS: { "1h": { tp: 1.25 } },
   // Filter koin liar (evaluasi live 14–19 Nov 2026): lewati sinyal kalau harga sudah bergerak lebih dari
   // move24h % dalam 24 jam terakhir, atau ATR sekarang lebih dari atrRatio x rata-rata ATR 200 candle.
   // Tahap 7 (README): tidak membantu secara konsisten di 5m–4h, jadi tidak dipakai (null = mati).
@@ -123,13 +127,19 @@ export const CONFIG = {
   // 1 jam PF naik di kedua kelompok koin, latih dan uji, dan 11 dari 12 bulan; sinyal turun ±26%.
   // Di 5m/15m/30m/4h tidak membantu, jadi hanya 1 jam.
   BTC_FILTER: { tfs: ["1h"], symbol: "BTCUSDT", interval: "1h" },
+  // Konsensus per timeframe (tahap 8): sinyal hanya diambil kalau di candle yang sama minimal sekian koin yang
+  // dipantau memberi sinyal searah (dihitung dari semua koin, lihat signalCounts/applyConsensus). Kosong = mati.
+  // Tahap 8 (README, 60 koin teratas + 48 koin lain, Des 2025–18 Nov 2026): minimal 2 koin + TP 1 ATR menaikkan
+  // win rate 1 jam (impas tidak dihitung) dari 74%/82% ke 81%/88% (latih/uji) dan PF dari 1,21/1,73 ke 1,51/1,98;
+  // sinyal turun dari ±9,5 ke ±6 per hari.
+  CONSENSUS: { "1h": 2 },
   EXIT_ON_SELL_SIGNAL: false,
   FEE_PERCENT: 0.05,
 };
 
 const C = CONFIG;
 // Versi aturan sinyal; dicatat di tiap trade "Hasil live" supaya evaluasi bisa dipisah per versi.
-export const ENGINE_VERSION = "tahap7";
+export const ENGINE_VERSION = "tahap8";
 export const INTERVAL_MS = { "1s": 1e3, "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------
@@ -202,7 +212,8 @@ export function alignTrend(candles, trendCandles, ema200 = false) {
 export const SETUP_LABEL = { pullback: "Pullback", retest: "Breakout-retest", range: "Range" };
 export const setupsFor = (interval) => C.SETUPS[interval] || C.DEFAULT_SETUPS;
 /** Aturan exit pullback/retest per timeframe: {tp, sl (kelipatan ATR), breakevenAt (bagian jarak TP) atau null}. */
-export const exitFor = (interval, symbol = null) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), trend200: !!C.TREND_EMA200_4H?.[interval], patterns: patternsFor(interval, symbol), interval });
+export const exitFor = (interval, symbol = null) => ({ tp: C.TAKE_PROFIT_ATR, sl: C.STOP_LOSS_ATR, breakevenAt: null, ...(C.EXITS[interval] || {}), ...(isMajor(symbol) ? C.EXITS_MAJORS?.[interval] || {} : {}), trend200: !!C.TREND_EMA200_4H?.[interval], patterns: patternsFor(interval, symbol), interval });
+const isMajor = (symbol) => !!symbol && !!C.MAJORS?.includes(symbol);
 /** Filter pola per timeframe; koin di CONFIG.MAJORS memakai CONFIG.PATTERNS_MAJORS kalau ada untuk timeframe itu. */
 export const patternsFor = (interval, symbol = null) => (symbol && C.MAJORS?.includes(symbol) && C.PATTERNS_MAJORS?.[interval]) || C.PATTERNS?.[interval] || null;
 
@@ -650,6 +661,31 @@ export const baseAsset = (symbol) => symbol.replace(/USDT$/, "").replace(/^1000+
  * Analisis lengkap satu koin di satu timeframe: indikator, sinyal terakhir, posisi bot,
  * hasil backtest, dan perkiraan waktu TP. trendCandles wajib jika usesFilter(interval).
  */
+/** Jumlah koin yang memberi sinyal per candle dan arah: Map "waktu|BELI" / "waktu|SHORT" -> jumlah. */
+export function signalCounts(results) {
+  const m = new Map();
+  for (const r of results) for (const row of r?.rows || []) {
+    if (row.signal !== "BELI" && row.signal !== "SHORT") continue;
+    const k = `${row.time}|${row.signal}`;
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+  return m;
+}
+
+/** Hasil analyze() dengan filter konsensus (CONFIG.CONSENSUS): sinyal yang didukung kurang dari `min` koin dibuang,
+ * lalu posisi dan backtest disimulasikan ulang. Tanpa CONSENSUS untuk timeframe ini, hasil dikembalikan apa adanya. */
+export function applyConsensus(result, counts, min = C.CONSENSUS?.[result.interval]) {
+  if (!min || !result || isMajor(result.symbol)) return result;
+  const rows = result.rows.map((row) => ((row.signal === "BELI" || row.signal === "SHORT") && (counts.get(`${row.time}|${row.signal}`) || 0) < min
+    ? { ...row, signal: "TAHAN", setup: null, consensus: counts.get(`${row.time}|${row.signal}`) || 0 } : row));
+  const out = { ...result, rows, last: rows[rows.length - 1], sides: {} };
+  for (const side of sides()) {
+    const sim = simulate(rows, side, result.interval);
+    out.sides[side] = { ...sim, timing: tpTiming(sim.closed) };
+  }
+  return out;
+}
+
 export const usesBtcFilter = (symbol, interval) => !!C.BTC_FILTER?.tfs?.includes(interval) && symbol !== C.BTC_FILTER.symbol;
 
 export function analyze(symbol, interval, candles, trendCandles = null, btcCandles = null) {
