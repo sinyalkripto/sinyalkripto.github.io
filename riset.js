@@ -1,6 +1,6 @@
 // Riset jumlah koin: ambil riwayat panjang untuk koin bervolume terbesar, jalankan strategi
 // yang sama (engine.js), lalu ringkas sinyal per hari, win rate, dan profit factor per kelompok koin.
-import { CONFIG, SETUP_LABEL, analyze, connect, isCryptoSymbol } from "./engine.js?v=18";
+import { CONFIG, SETUP_LABEL, analyze, connect, isCryptoSymbol } from "./engine.js?v=19";
 
 const DAYS = 180;              // jendela evaluasi
 const N_COINS = 100;           // kandidat koin teratas menurut volume
@@ -81,6 +81,8 @@ async function run() {
   const to = Date.now(), from = to - DAYS * D;
   const per = [];
   let done = 0;
+  // Filter arah BTC (CONFIG.BTC_FILTER): candle BTC 1 jam diambil sekali untuk semua koin.
+  const btc = CONFIG.BTC_FILTER?.tfs?.includes("1h") ? await history(src, CONFIG.BTC_FILTER.symbol, "1h", DAYS * 24 + 300) : null;
   const queue = coins.map((s, i) => ({ s, i }));
   async function worker() {
     for (let job = queue.shift(); job; job = queue.shift()) {
@@ -88,7 +90,7 @@ async function run() {
         const c1 = await history(src, job.s, "1h", DAYS * 24 + 300);
         const c4 = await history(src, job.s, "4h", DAYS * 6 + 300);
         if (c1.length < 600 || c4.length < 120) throw new Error("data terlalu pendek");
-        const r = analyze(job.s, "1h", c1, c4);
+        const r = analyze(job.s, "1h", c1, c4, btc);
         const trades = ["long", "short"].flatMap((side) => r.sides[side].closed.map((x) => ({ t: x.entryTime, r: x.ret, s: side[0], k: x.setup })));
         // 4 jam: dianalisis tanpa filter tren di atasnya (sama seperti di situs).
         const r4 = analyze(job.s, "4h", c4, null);
