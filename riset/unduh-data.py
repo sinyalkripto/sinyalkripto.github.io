@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 B = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/futures/um"
 MONTHS = [f"2025-{m:02d}" for m in (11, 12)] + [f"2026-{m:02d}" for m in range(1, 11)]
-DAYS = [f"2026-11-{d:02d}" for d in range(1, 17)]
+DAYS = [f"2026-11-{d:02d}" for d in range(1, 19)]
 
 def get(url):
     try:
