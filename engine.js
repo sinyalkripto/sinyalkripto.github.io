@@ -8,10 +8,11 @@ export const CONFIG = {
   // Riset Nov 2026 (README, data Binance Futures Des 2025–Nov 2026): 60 koin ≈ 22 sinyal 1 jam per hari
   // dengan exit dan filter di bawah; 40 koin ≈ 17 sinyal/hari dengan aturan lama.
   TOP_COINS: 60,
-  // Timeframe kecil (eksperimen) memindai lebih banyak koin: 100 koin teratas. Koin peringkat 61–100 hanya dianalisis
-  // di FAST_TIMEFRAMES (plus 4 jam untuk filter tren), tidak muncul di daftar koin, tapi sinyalnya tampil.
-  TOP_COINS_FAST: 100,
-  FAST_TIMEFRAMES: ["5m", "15m", "30m"],
+  // Timeframe kecil (eksperimen) memindai lebih banyak koin: TOP_COINS_FAST koin teratas. Koin di luar TOP_COINS hanya
+  // dianalisis di FAST_TIMEFRAMES (plus 4 jam untuk filter tren), tidak muncul di daftar koin, tapi sinyalnya tampil.
+  // Tahap 10: 5m/15m/30m dimatikan, jadi kembali 60 koin saja (dulu 100 dan ["5m", "15m", "30m"]).
+  TOP_COINS_FAST: 60,
+  FAST_TIMEFRAMES: [],
   // Selalu ikut dianalisis di luar top koin (emas).
   EXTRA_SYMBOLS: ["XAUUSDT"],
   EXCLUDE: ["USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "DAIUSDT", "EURUSDT",
@@ -24,13 +25,20 @@ export const CONFIG = {
     "SAMSUNGUSDT", "QQQUSDT", "DRAMUSDT", "EWYUSDT", "SPYUSDT", "MUUUSDT", "MRVLUSDT", "NBISUSDT", "AMDUSDT",
     "METAUSDT", "TQQQUSDT", "NATGASUSDT", "AAPLUSDT", "AAOIUSDT", "CBRSUSDT", "CRWVUSDT", "WDCUSDT",
     "AXTIUSDT", "INTWUSDT", "ZHIPUUSDT", "UNITREEUSDT", "MVLLUSDT", "COINUSDT", "HOODUSDT", "AMZNUSDT",
-    "MSFTUSDT", "PLTRUSDT", "ORCLUSDT", "AVGOUSDT", "TSMUSDT", "NFLXUSDT", "BABAUSDT", "SMCIUSDT", "ARMUSDT"],
+    "MSFTUSDT", "PLTRUSDT", "ORCLUSDT", "AVGOUSDT", "TSMUSDT", "NFLXUSDT", "BABAUSDT", "SMCIUSDT", "ARMUSDT",
+    // Tahap 10 (20 Nov 2026): saham, ETF, dan komoditas yang lolos ke 130 besar volume. Ciri: candle akhir pekan
+    // ±0,25–0,5x candle hari kerja (koin kripto ±0,6–0,75x). COHR sendiri kena SL 4 kali di 19–20 Nov.
+    "COHRUSDT", "IRENUSDT", "TTWOUSDT", "LITEUSDT", "CRDOUSDT", "MRNAUSDT", "BEUSDT", "QCOMUSDT", "GLWUSDT",
+    "DELLUSDT", "MINIMAXUSDT", "ZHONGJIUSDT", "CXMTUSDT", "BMNRUSDT", "STRCUSDT", "SQQQUSDT", "UVXYUSDT",
+    "NVDLUSDT", "MSTUUSDT", "BITOUSDT", "SKDDUSDT", "SKUUUSDT", "RAMUSDT", "CSOPSKHYNIX2LUSDT", "XPTUSDT", "COPPERUSDT"],
   // Daftar blokir: koin yang secara konsisten kena stop loss di sinyal live (catatan pengguna, Nov 2026).
   // Tidak dianalisis dan tidak muncul di situs. Tambah atau hapus nama simbol di sini (format XXXUSDT).
   // NVDAUSDT dan SOXSUSDT adalah token saham/ETF, bukan kripto, dan sebelumnya lolos dari filter token saham.
   BLOCKLIST: ["JCTUSDT", "AKEUSDT", "SOXSUSDT", "AAVEUSDT", "LITUSDT", "NVDAUSDT", "ARIAUSDT", "NEARUSDT"],
   // 1m dan 3m dimatikan (evaluasi live 14–19 Nov 2026: PF 0,81 dan 0,59, sama dengan uji historis).
-  TIMEFRAMES: ["1s", "5m", "15m", "30m", "1h", "4h"],
+  // Tahap 10 (20 Nov 2026): 5m, 15m, 30m juga dimatikan. Uji Agu–19 Nov 2026 (100 koin, aturan situs): PF 0,84–0,86 (5m),
+  // 0,82–0,92 (15m), 0,78–1,13 (30m) di periode uji, ±31–33% trade kena SL penuh sejak Okt (1 jam: ±4%).
+  TIMEFRAMES: ["1s", "1h", "4h"],
   CANDLE_LIMIT: 1500,
   // Timeframe kecil cukup 1000 candle (lebih ringan untuk batas API).
   FAST_LIMIT: 1000,
@@ -148,7 +156,7 @@ export const CONFIG = {
 
 const C = CONFIG;
 // Versi aturan sinyal; dicatat di tiap trade "Hasil live" supaya evaluasi bisa dipisah per versi.
-export const ENGINE_VERSION = "tahap9";
+export const ENGINE_VERSION = "tahap10";
 export const INTERVAL_MS = { "1s": 1e3, "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------

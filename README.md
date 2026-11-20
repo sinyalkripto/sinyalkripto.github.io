@@ -9,7 +9,8 @@ dan tren 4 jam harus searah EMA 200 4 jam. Sinyal breakout-retest 1 jam wajib di
 searah (engulfing, pin bar, atau tweezer; tahap 5). 4 jam hanya setup pullback. Sejak tahap 7, sinyal 1 jam juga wajib searah
 BTC 1 jam (EMA 20 vs EMA 50), dan timeframe 1m/3m dimatikan. Sejak tahap 8, sinyal 1 jam wajib didukung minimal 3 koin
 searah di candle yang sama, dan TP 1 jam 0,75 ATR (BTC/ETH/BNB tetap 1,25 ATR, tanpa konsensus). Sejak tahap 9, sinyal
-4 jam dilewati kalau dalam 10 candle terakhir ada lonjakan volume lebih dari 8x rata-rata (koin baru dipompa atau didump).
+4 jam dilewati kalau dalam 10 candle terakhir ada lonjakan volume lebih dari 8x rata-rata (koin baru dipompa atau didump). Sejak
+tahap 10, 5m/15m/30m dimatikan (rugi di uji historis, sumber hampir semua SL 14–20 Nov) dan token saham yang lolos diblokir.
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
@@ -352,6 +353,50 @@ kelompok 2 = 61+; latih Des 2025–Jul 2026, uji Agu–19 Nov 2026; long dan sho
 - **Catatan jujur.** Sinyal short HUMA 17 Nov (volume 17x) yang ikut terbuang justru kena TP; filter ini memperbaiki rata-rata,
   bukan setiap kasus. Kenaikannya di kelompok 2 (latih) kecil (PF 0,99 → 1,01), dan 4 jam tetap timeframe dengan PF paling tipis.
 
+### Tahap 10: evaluasi SL 19–20 Nov, matikan 5m/15m/30m (20 Nov 2026)
+
+Keluhan: makin banyak sinyal kena SL (PnL harian pengguna 20 Nov −13,99 USDT). Sinyal 14–20 Nov (sampai 07.00 WIB, data terakhir di
+arsip Binance) dihitung ulang dengan mesin tahap 9 dari data Binance Futures:
+
+| TF | Trade 14–20 Nov | Kena SL | PF | Σ | Sejak 16 Nov: PF, Σ |
+|---|---|---|---|---|---|
+| 5m | 187 | 38 (20%) | 1,21 | +24% | 0,87, −13% |
+| 15m | 183 | 38 (21%) | 1,56 | +56% | 1,16, +13% |
+| 30m | 97 | 23 (24%) | 1,34 | +27% | 0,92, −6% |
+| 1j | 19 | 0 | – (tanpa rugi) | +17% | – (tanpa rugi), +7% |
+| 4j | 3 | 2 | 0,15 | −22% | sama |
+
+99 dari 101 SL datang dari 5m/15m/30m; 2 sisanya short 4 jam (termasuk HUMA 19 Nov, SL 16% dari harga masuk). Untung 5m–30m di
+minggu ini hampir semua dari hari dump 15 Nov. Token saham ikut lolos ke daftar koin: COHR (Coherent) sendiri kena SL 4 kali di 19–20 Nov.
+
+**Uji historis** (`riset/uji-tahap10.mjs`, 130 koin teratas menurut volume 17–19 Nov; 1j/4j latih Des 2025–Jul 2026, uji Agu–19 Nov
+2026; 5m–30m latih 15 Agu–Sep, uji Okt–19 Nov 2026; kolom: PF kelompok 1 latih / uji · kelompok 2 latih / uji):
+
+| Aturan | 1 jam | 4 jam | 15 menit |
+|---|---|---|---|
+| Tahap 9 | 1,54 / 3,24 · 1,93 / 3,01 | 1,07 / 1,05 · 1,08 / 1,02 | 0,91 / 0,90 · 0,74 / 0,84 |
+| Short dilewati kalau funding < −0,05% | 1,27 / 3,44 · 1,54 / 2,73 | 1,03 / 1,08 · 1,04 / 1,00 | 0,90 / 0,99 · 0,74 / 0,81 |
+| Short dilewati kalau funding < −0,1% | 1,48 / 3,24 · 1,93 / 2,73 | 1,07 / 1,09 · 1,08 / 1,03 | 0,91 / 0,92 · 0,75 / 0,80 |
+| Short dilewati kalau naik > 10% dalam 24 jam | 1,48 / 3,24 · 1,87 / 3,57 | 1,07 / 0,98 · 1,10 / 1,11 | sama |
+| Lawan gerak 24 jam > 15% dilewati (dua arah) | 1,53 / 3,24 · 1,92 / 3,01 | 1,04 / 1,12 · 1,12 / 1,18 | sama |
+| SL maksimal 8% dari harga | 1,32 / 3,32 · 1,44 / 3,74 | 1,17 / 1,00 · 0,95 / 1,42 | sama |
+| Maks 2 posisi searah terbuka | 2,14 / 2,92 · 2,54 / 4,46 | 1,09 / 1,20 · 1,16 / 0,86 | – |
+| Tanpa token saham/ETF | 1,51 / 3,11 · 1,93 / 3,68 | 1,06 / 1,06 · 1,09 / 1,04 | 0,89 / 0,95 · 0,74 / 0,98 |
+
+Funding dihitung dari rata-rata premium index 8 jam terakhir (arsip Binance tidak punya funding harian untuk Nov). Tidak ada aturan
+yang lebih baik di keempat kolom, jadi **tidak ada filter baru**. 5m (PF uji 0,81 / 0,89), 15m (0,90 / 0,84), dan 30m (1,16 / 0,77) tetap
+rugi apa pun filternya; sejak Okt ±31–33% trade 5m–30m kena SL penuh, 4 jam ±29%, 1 jam ±4%.
+
+**Perubahan:**
+- 5m, 15m, 30m dimatikan (seperti 1m/3m di tahap 7). Koin tambahan untuk timeframe kecil (peringkat 61–100) ikut hilang.
+- 26 token saham, ETF, dan komoditas ditambahkan ke `CONFIG.TRADFI` (COHR, IREN, TTWO, LITE, BE, QCOM, DELL, SQQQ, XPT, dan lain-lain).
+  Cirinya: candle akhir pekan cuma ±0,25–0,5x candle hari kerja (koin kripto ±0,6–0,75x). Efeknya ke hasil uji kecil (lihat tabel);
+  ini merapikan daftar, bukan menaikkan untung.
+
+**Catatan jujur.** Sinyal jauh berkurang: tinggal 1 jam (±3–4 sinyal/hari di 60 koin) dan 4 jam (±1–2/hari). 4 jam juga tipis (PF ±1,05,
+Nov 2026 PF 0,84) dan SL-nya bisa jauh karena tidak ada batas SL di 4 jam; batas 6–12% sudah diuji dan tidak konsisten. Buat trading
+manual, membatasi diri ke 2 posisi searah menaikkan PF di 3 dari 4 kolom 1 jam tapi total untung turun ±40%, jadi tidak dipasang di situs.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
@@ -372,6 +417,7 @@ Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV d
 - `riset/uji-tahap3.mjs`: uji setelan situs dengan pembagian latih/uji.
 - `riset/uji-pola.mjs`: uji filter pola chart (CONFIG.PATTERNS) dengan pembagian latih/uji.
 - `riset/uji-tahap7.mjs`: uji filter arah BTC dan filter koin liar per timeframe, dua kelompok koin.
+- `riset/uji-tahap10.mjs`: uji filter funding, gerak 24 jam, batas SL, batas posisi searah, dan token saham.
 - `pola.js`: deteksi pola candlestick, support/resistance, reversal, dan continuation.
 - `riset/freqtrade/`: strategi yang sama untuk freqtrade (cek silang backtest, bisa jalan tanpa akses API bursa).
 
