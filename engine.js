@@ -7,11 +7,13 @@ import { detectPatterns } from "./pola.js?v=1";
 export const CONFIG = {
   // Riset Nov 2026 (README, data Binance Futures Des 2025–Nov 2026): 60 koin ≈ 22 sinyal 1 jam per hari
   // dengan exit dan filter di bawah; 40 koin ≈ 17 sinyal/hari dengan aturan lama.
-  TOP_COINS: 60,
+  // Tahap 11 (20 Nov 2026): 60 -> 100 koin supaya sinyal 1 jam lebih banyak (±3 -> ±6 per hari di uji Agu–Nov 2026).
+  // Koin peringkat 61–100 sendiri: PF 1,88 latih / 2,27 uji, jadi tambahan sinyalnya tetap untung di uji historis.
+  TOP_COINS: 100,
   // Timeframe kecil (eksperimen) memindai lebih banyak koin: TOP_COINS_FAST koin teratas. Koin di luar TOP_COINS hanya
   // dianalisis di FAST_TIMEFRAMES (plus 4 jam untuk filter tren), tidak muncul di daftar koin, tapi sinyalnya tampil.
-  // Tahap 10: 5m/15m/30m dimatikan, jadi kembali 60 koin saja (dulu 100 dan ["5m", "15m", "30m"]).
-  TOP_COINS_FAST: 60,
+  // Tahap 10: 5m/15m/30m dimatikan (FAST_TIMEFRAMES kosong). Tahap 11: sama dengan TOP_COINS (100).
+  TOP_COINS_FAST: 100,
   FAST_TIMEFRAMES: [],
   // Selalu ikut dianalisis di luar top koin (emas).
   EXTRA_SYMBOLS: ["XAUUSDT"],
@@ -158,7 +160,7 @@ export const CONFIG = {
 
 const C = CONFIG;
 // Versi aturan sinyal; dicatat di tiap trade "Hasil live" supaya evaluasi bisa dipisah per versi.
-export const ENGINE_VERSION = "tahap10b";
+export const ENGINE_VERSION = "tahap11";
 export const INTERVAL_MS = { "1s": 1e3, "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------

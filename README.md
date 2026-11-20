@@ -11,6 +11,7 @@ BTC 1 jam (EMA 20 vs EMA 50), dan timeframe 1m/3m dimatikan. Sejak tahap 8, siny
 searah di candle yang sama, dan TP 1 jam 0,75 ATR (BTC/ETH/BNB tetap 1,25 ATR, tanpa konsensus). Sejak tahap 9, sinyal
 4 jam dilewati kalau dalam 10 candle terakhir ada lonjakan volume lebih dari 8x rata-rata (koin baru dipompa atau didump). Sejak
 tahap 10, 5m/15m/30m dan sinyal 4 jam dimatikan (rugi di uji historis, sumber hampir semua SL 14–20 Nov) dan token saham yang lolos diblokir.
+Sejak tahap 11, 1 jam memantau 100 koin (±6 sinyal/hari).
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
@@ -401,6 +402,24 @@ dimuat dan diperbarui untuk filter tren 1 jam. Di CSV yang sama, 1 jam versi tah
 Nov 2026 PF 0,84) dan SL-nya bisa jauh karena tidak ada batas SL di 4 jam; batas 6–12% sudah diuji dan tidak konsisten. Buat trading
 manual, membatasi diri ke 2 posisi searah menaikkan PF di 3 dari 4 kolom 1 jam tapi total untung turun ±40%, jadi tidak dipasang di situs.
 
+### Tahap 11: lebih banyak sinyal 1 jam (20 Nov 2026)
+
+Permintaan: setelah tahap 10 sinyal tinggal ±3–4 per hari, terlalu sedikit. Timeframe yang sudah dimatikan tidak dihidupkan lagi;
+yang diuji adalah jumlah koin dan konsensus di 1 jam (`riset/uji-tahap11.mjs`, koin menurut volume 17–19 Nov, latih Des 2025–Jul 2026,
+uji Agu–19 Nov 2026; "rugi" = trade yang ditutup rugi lebih dari 0,5%):
+
+| 1 jam | Sinyal/hari latih | PF latih | Sinyal/hari uji | PF uji | Rugi (uji) | Koin 61+ saja: PF latih / uji |
+|---|---|---|---|---|---|---|
+| 60 koin, konsensus 3 (tahap 10) | 3,6 | 1,51 | 2,9 | 3,72 | 4% | – |
+| **100 koin, konsensus 3 (dipakai)** | **6,5** | **1,56** | **6,0** | **2,33** | **5%** | **1,88 / 2,27** |
+| 100 koin, konsensus 2 | 8,5 | 1,38 | 8,4 | 1,89 | 6% | 1,54 / 1,82 |
+
+Koin 101–125 hampir tidak menambah sinyal (banyak yang datanya pendek). TP 1 ATR (bukan 0,75) juga dicoba: sinyal hampir sama, PF uji turun.
+
+**Catatan jujur.** Sinyal kira-kira dua kali lipat dengan PF tetap di atas 1,5 di kedua periode, tapi PF uji turun dari 3,72 ke 2,33:
+koin peringkat 61–100 lebih liar dan sedikit lebih sering kena SL. Situs juga memuat 100 koin (1 jam + 4 jam), jadi pertama kali dibuka
+sedikit lebih lama. Versi konsensus 2 bisa dipakai dengan mengubah `CONSENSUS`.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
@@ -421,6 +440,7 @@ Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV d
 - `riset/uji-tahap3.mjs`: uji setelan situs dengan pembagian latih/uji.
 - `riset/uji-pola.mjs`: uji filter pola chart (CONFIG.PATTERNS) dengan pembagian latih/uji.
 - `riset/uji-tahap7.mjs`: uji filter arah BTC dan filter koin liar per timeframe, dua kelompok koin.
+- `riset/uji-tahap11.mjs`: uji jumlah koin, konsensus, dan TP untuk 1 jam.
 - `riset/uji-tahap10.mjs`: uji filter funding, gerak 24 jam, batas SL, batas posisi searah, dan token saham.
 - `pola.js`: deteksi pola candlestick, support/resistance, reversal, dan continuation.
 - `riset/freqtrade/`: strategi yang sama untuk freqtrade (cek silang backtest, bisa jalan tanpa akses API bursa).
