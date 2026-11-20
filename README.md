@@ -10,7 +10,7 @@ searah (engulfing, pin bar, atau tweezer; tahap 5). 4 jam hanya setup pullback. 
 BTC 1 jam (EMA 20 vs EMA 50), dan timeframe 1m/3m dimatikan. Sejak tahap 8, sinyal 1 jam wajib didukung minimal 3 koin
 searah di candle yang sama, dan TP 1 jam 0,75 ATR (BTC/ETH/BNB tetap 1,25 ATR, tanpa konsensus). Sejak tahap 9, sinyal
 4 jam dilewati kalau dalam 10 candle terakhir ada lonjakan volume lebih dari 8x rata-rata (koin baru dipompa atau didump). Sejak
-tahap 10, 5m/15m/30m dimatikan (rugi di uji historis, sumber hampir semua SL 14–20 Nov) dan token saham yang lolos diblokir.
+tahap 10, 5m/15m/30m dan sinyal 4 jam dimatikan (rugi di uji historis, sumber hampir semua SL 14–20 Nov) dan token saham yang lolos diblokir.
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
@@ -393,7 +393,11 @@ rugi apa pun filternya; sejak Okt ±31–33% trade 5m–30m kena SL penuh, 4 jam
   Cirinya: candle akhir pekan cuma ±0,25–0,5x candle hari kerja (koin kripto ±0,6–0,75x). Efeknya ke hasil uji kecil (lihat tabel);
   ini merapikan daftar, bukan menaikkan untung.
 
-**Catatan jujur.** Sinyal jauh berkurang: tinggal 1 jam (±3–4 sinyal/hari di 60 koin) dan 4 jam (±1–2/hari). 4 jam juga tipis (PF ±1,05,
+**Update (20 Nov, permintaan pengguna):** sinyal 4 jam juga dimatikan. Di CSV hasil live pengguna (1.100 trade, 14–20 Nov) 4 jam:
+16 trade, PF 0,38, −59% (sejak 16 Nov: 15 trade, −52%), termasuk short HUMA −17,6% yang kena SL 20 Nov 07.29 WIB. Candle 4 jam tetap
+dimuat dan diperbarui untuk filter tren 1 jam. Di CSV yang sama, 1 jam versi tahap 9: 8 trade, 4 TP, 4 impas, 0 SL.
+
+**Catatan jujur.** Sinyal jauh berkurang: tinggal 1 jam (±3–4 sinyal/hari di 60 koin). 4 jam sebelumnya juga tipis (PF ±1,05,
 Nov 2026 PF 0,84) dan SL-nya bisa jauh karena tidak ada batas SL di 4 jam; batas 6–12% sudah diuji dan tidak konsisten. Buat trading
 manual, membatasi diri ke 2 posisi searah menaikkan PF di 3 dari 4 kolom 1 jam tapi total untung turun ±40%, jadi tidak dipasang di situs.
 
