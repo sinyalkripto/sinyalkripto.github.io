@@ -367,8 +367,10 @@ function soloTick() {
 
 // ---------- Live ----------
 const lastClose = {};
+// Timeframe yang candlenya diperbarui: semua timeframe yang tampil + timeframe tren (4 jam), walau 4 jam tidak tampil.
+const REFRESH_TFS = [...new Set([...(CONFIG.TREND_FILTER ? [CONFIG.TREND_FILTER] : []), ...TFS])];
 function startLive() {
-  TFS.forEach((tf) => { lastClose[tf] = Math.floor(Date.now() / INTERVAL_MS[tf]); });
+  REFRESH_TFS.forEach((tf) => { lastClose[tf] = Math.floor(Date.now() / INTERVAL_MS[tf]); });
   // Candle 1 detik: hanya koin yang sedang dibuka di grafik.
   setInterval(async () => {
     if (S.tf !== SOLO_TF || document.hidden) return;
@@ -390,10 +392,10 @@ function startLive() {
   }, 60e3);
   // Ambil ulang candle saat sebuah timeframe tutup (sinyal baru hanya muncul di saat itu).
   setInterval(async () => {
-    const changed = TFS.filter((tf) => tf !== SOLO_TF && Math.floor((Date.now() - 4000) / INTERVAL_MS[tf]) !== lastClose[tf]);
+    const changed = REFRESH_TFS.filter((tf) => tf !== SOLO_TF && Math.floor((Date.now() - 4000) / INTERVAL_MS[tf]) !== lastClose[tf]);
     if (!changed.length) return;
     changed.forEach((tf) => { lastClose[tf] = Math.floor((Date.now() - 4000) / INTERVAL_MS[tf]); });
-    const order = changed.includes("4h") ? ["4h", ...changed.filter((t) => t !== "4h")] : changed;
+    const order = changed.includes(CONFIG.TREND_FILTER) ? [CONFIG.TREND_FILTER, ...changed.filter((t) => t !== CONFIG.TREND_FILTER)] : changed;
     const tasks = [];
     for (const tf of order) for (const { symbol } of symbolsFor(tf)) tasks.push(() => load(symbol, tf));
     await pool(tasks, 4);
@@ -740,7 +742,7 @@ function renderBacktest() {
     html.push(`<div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:13px">${TF_LABEL[tf]} · ${side === "long" ? "Long" : "Short"}${tfTag(tf)}</span><b class="${avg >= 0 ? "up" : "down"}">${fmtPct(avg, 1)}</b><span class="muted" style="font-size:13px">Win ${Number.isNaN(win) ? "–" : nf(0).format(win) + "%"} dari ${n} trade · PF ${pf === Infinity ? "∞ (belum ada rugi)" : Number.isFinite(pf) ? nf(2).format(pf) : "–"}</span><span class="muted" style="font-size:13px">${rs.filter((x) => x.return > 0).length}/${rs.length} koin untung${tm.samples ? ` · TP ± ${fmtDur(tm.median)}` : ""}</span></div>`);
   }
   $("#bt").innerHTML = html.join("") || `<p class="empty">Memuat…</p>`;
-  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (5m ≈ 3,5 hari, 15m ≈ 15 hari, 1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi. PF (profit factor) = total untung dibagi total rugi; di atas 1 berarti untung bersih. Win rate tinggi belum tentu untung, karena TP sengaja lebih dekat dari SL. ★ 1j = timeframe utama (satu-satunya yang untung bersih di uji 6 bulan); * eksperimen = di uji historis belum untung bersih setelah biaya.";
+  $("#bt-sub").textContent = "Rata-rata semua koin dari candle terakhir per timeframe (1j ≈ 2 bulan, 4j ≈ 8 bulan; 1 detik dirakit dari transaksi Futures, hanya koin yang pernah dibuka), tanpa leverage, sudah termasuk biaya 0,05% per transaksi. PF (profit factor) = total untung dibagi total rugi; di atas 1 berarti untung bersih. Win rate tinggi belum tentu untung, karena TP sengaja lebih dekat dari SL. ★ 1j = timeframe utama (satu-satunya yang untung bersih di uji 6 bulan); * eksperimen = di uji historis belum untung bersih setelah biaya.";
 }
 
 // ---------- Analisis teknikal: arah LONG/SHORT per timeframe ----------
