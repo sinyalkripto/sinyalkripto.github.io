@@ -1,6 +1,7 @@
 import {
-  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, usesBtcFilter, ENGINE_VERSION, signalCounts, applyConsensus, SETUP_LABEL, setupsFor, exitFor,
-} from "./engine.js?v=20";
+  CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, onSourceChange, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, usesBtcFilter, ENGINE_VERSION, signalCounts, applyConsensus, SETUP_LABEL, setupsFor, exitFor,
+} from "./engine.js?v=21";
+import { cacheGet, cachePut, symbolsGet, symbolsPut } from "./cache.js?v=1";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 import { polaName } from "./pola.js?v=1";
 
@@ -19,6 +20,8 @@ const S = {
   symbols: [], fastOnly: [], info: {}, data: {}, res: {}, raw: {}, prices: {}, prevPrices: {},
   sel: "BTCUSDT", tf: "1h", ind: { ema: true, bb: false, vol: true, rsi: true, macd: true },
   sigTf: MAIN_TF, sigSide: "all", showAllPos: false, loadErr: {},
+  // Koin|timeframe yang datanya masih dari simpanan browser (sumber data sedang tidak bisa dihubungi).
+  stale: new Set(), offlineSince: null,
 };
 
 // ---------- Format ----------
@@ -91,6 +94,7 @@ setInterval(applyTheme, 60e3);
 const splashStart = performance.now();
 let splashDone = false;
 function splashProgress(pct, text) {
+  if (!$("#splash-bar")) return;
   $("#splash-bar").style.width = pct + "%";
   if (text) $("#splash-status").textContent = text;
 }
@@ -176,19 +180,38 @@ function refreshConsensus() {
   consensusDirty.clear();
 }
 
-// Ambil ulang candle: kalau data lama sudah ada, cukup 20 candle terakhir lalu disambung (bobot API jauh lebih kecil,
-// jadi lebih banyak koin bisa dipantau). Kalau ada celah, ambil penuh lagi.
+// Ambil ulang candle: kalau data lama sudah ada (di memori atau simpanan browser), cukup candle yang belum ada lalu
+// disambung (bobot API jauh lebih kecil). Kalau ada celah, ambil penuh lagi. Kalau semua sumber data gagal, data lama
+// dari simpanan browser tetap dipakai supaya sinyal tetap tampil (ditandai di S.stale, diambil ulang otomatis).
 async function load(sym, tf) {
   if (tf === SOLO_TF) { await ensureSolo(sym); return soloTick(); }
-  const prev = S.data[sym]?.[tf], limit = candleLimit(tf);
-  let k = null;
-  if (prev?.closed?.length) {
-    const inc = await fetchKlines(sym, tf, 20);
-    const all = [...inc.closed, inc.live].filter(Boolean);
-    const first = all[0]?.time, old = prev.closed.filter((c) => c.time < first);
-    if (old.length && first - old[old.length - 1].time <= INTERVAL_MS[tf]) k = { closed: [...old, ...inc.closed].slice(-(limit - 1)), live: inc.live };
+  const limit = candleLimit(tf), key = `${sym}|${tf}`;
+  let prev = S.data[sym]?.[tf];
+  if (!prev?.closed?.length) {
+    const c = await cacheGet(sym, tf);
+    const src = dataSource()?.name;
+    if (c && (!src || c.src === src)) prev = { closed: c.closed.slice(-(limit - 1)), live: null, src: c.src, savedAt: c.savedAt };
   }
-  k ??= await fetchKlines(sym, tf, limit);
+  let k = null;
+  try {
+    if (prev?.closed?.length) {
+      const need = Math.ceil((Date.now() - prev.closed[prev.closed.length - 1].time) / INTERVAL_MS[tf]) + 3;
+      if (need < limit) {
+        const inc = await fetchKlines(sym, tf, Math.max(20, need));
+        const all = [...inc.closed, inc.live].filter(Boolean);
+        const first = all[0]?.time, old = prev.closed.filter((c) => c.time < first);
+        if (old.length && first - old[old.length - 1].time <= INTERVAL_MS[tf]) k = { closed: [...old, ...inc.closed].slice(-(limit - 1)), live: inc.live };
+      }
+    }
+    k ??= await fetchKlines(sym, tf, limit);
+    k.src = dataSource()?.name;
+    S.stale.delete(key);
+    cachePut(sym, tf, k.src, k.closed);
+  } catch (e) {
+    if (!prev?.closed?.length || e.status === 400 || e.status === 404) throw e;
+    k = prev;
+    S.stale.add(key);
+  }
   S.data[sym] ??= {};
   S.data[sym][tf] = k;
   if (tf === CONFIG.TREND_FILTER) TFS.forEach((t) => compute(sym, t));
@@ -273,9 +296,20 @@ function renderAll() {
 }
 
 async function init() {
+  splashProgress(12, "Menghubungkan ke sumber data…");
+  let all;
   try {
-    splashProgress(12, "Menghubungkan ke Binance…");
-    const all = await topSymbols(CONFIG.TOP_COINS_FAST);
+    all = await topSymbols(CONFIG.TOP_COINS_FAST);
+    symbolsPut(dataSource()?.name, all);
+  } catch (e) {
+    console.error(e);
+    // Semua sumber gagal: pakai daftar koin + candle terakhir yang tersimpan di browser ini (kalau ada).
+    const saved = symbolsGet();
+    if (!saved?.list?.length) return initFailed(e);
+    all = saved.list;
+    S.offlineSince = saved.savedAt;
+  }
+  try {
     const crypto = all.filter((s) => !CONFIG.EXTRA_SYMBOLS.includes(s.symbol));
     S.symbols = [...crypto.slice(0, CONFIG.TOP_COINS), ...all.filter((s) => CONFIG.EXTRA_SYMBOLS.includes(s.symbol))];
     S.fastOnly = crypto.slice(CONFIG.TOP_COINS);
@@ -290,11 +324,16 @@ async function init() {
     if (btcSym && S.info[btcSym]) { try { await load(btcSym, "4h"); await load(btcSym, CONFIG.BTC_FILTER.interval); } catch (e) { console.error(e); } }
     const first = [];
     for (const { symbol } of S.symbols) {
-      first.push(async () => { await load(symbol, "4h"); await load(symbol, "1h"); done++; splashProgress(30 + done / S.symbols.length * 60, "Menghitung sinyal…"); scheduleRender(); });
+      first.push(async () => {
+        try { await load(symbol, "4h"); await load(symbol, "1h"); } finally {
+          done++; splashProgress(30 + done / S.symbols.length * 60, "Menghitung sinyal…"); scheduleRender();
+        }
+      });
     }
     await pool(first, 5);
     splashProgress(100, "Siap");
     maybeHideSplash(true);
+    showSource();
     renderAll();
     const rest = [];
     for (const tf of ["30m", "15m", "5m", "3m", "1m"].filter((t) => TFS.includes(t))) for (const { symbol } of S.symbols) rest.push(async () => { await load(symbol, tf); scheduleRender(); });
@@ -304,13 +343,19 @@ async function init() {
     renderAll();
     startLive();
   } catch (e) {
-    console.error(e);
-    hideSplash();
-    const msg = `Data harga tidak bisa diambil dari Binance Futures, Bybit, maupun Binance Spot (${esc(e.message)}). Kemungkinan jaringan (ISP) atau ekstensi browser (misalnya pemblokir iklan) memblokir situs-situs itu. Coba nonaktifkan ekstensi itu untuk situs ini, ganti DNS ke 1.1.1.1 atau 8.8.8.8, atau pakai jaringan lain, lalu muat ulang halaman. Detail: buka situs dengan ?debug di akhir alamat.`;
-    $("#coins").innerHTML = `<p class="disclaimer">${msg}</p>`;
-    $("#chart-title").innerHTML = `<p class="disclaimer" style="margin:0">${msg}</p>`;
-    $("#hs-btc").textContent = "tidak tersedia";
+    initFailed(e, false);
   }
+}
+
+// Tidak ada sumber data dan tidak ada data tersimpan: tampilkan penjelasan, lalu coba lagi otomatis tiap 30 detik.
+function initFailed(e, retry = true) {
+  console.error(e);
+  hideSplash();
+  const msg = `Data harga belum bisa diambil dari Binance, Bybit, OKX, Bitget, Gate, maupun Hyperliquid (${esc(e.message)}). Situs mencoba lagi otomatis tiap 30 detik. Kalau tetap gagal, kemungkinan jaringan (ISP) atau ekstensi browser (misalnya pemblokir iklan) memblokir situs-situs itu: coba nonaktifkan ekstensi itu untuk situs ini, ganti DNS ke 1.1.1.1 atau 8.8.8.8, atau pakai jaringan lain. Detail: buka situs dengan ?debug di akhir alamat.`;
+  $("#coins").innerHTML = `<p class="disclaimer">${msg}</p>`;
+  $("#chart-title").innerHTML = `<p class="disclaimer" style="margin:0">${msg}</p>`;
+  $("#hs-btc").textContent = "tidak tersedia";
+  if (retry) setTimeout(init, 30e3);
 }
 
 // ---------- Candle 1 detik (transaksi Futures: riwayat REST + WebSocket aggTrade) ----------
@@ -323,13 +368,20 @@ function stopSolo() {
 function showSource() {
   const src = dataSource();
   const el = $("#src-note");
-  if (!el || !src) return;
+  if (!el) return;
+  if (!src || S.stale.size) {
+    const at = S.offlineSince ?? Math.min(...[...S.stale].map((k) => { const [sym, tf] = k.split("|"); return S.data[sym]?.[tf]?.savedAt ?? Date.now(); }));
+    el.hidden = false;
+    el.textContent = `Sumber data sedang tidak bisa dihubungi, jadi sinyal dihitung dari data terakhir yang tersimpan di browser ini${Number.isFinite(at) ? ` (${fmtTime(at)} WIB)` : ""}. Situs terus mencoba menyambung lagi dan memperbarui sendiri begitu berhasil. Jangan masuk posisi sebelum data kembali live.`;
+    return;
+  }
   if (src.name === "Binance Futures") { el.hidden = true; return; }
   el.hidden = false;
   el.textContent = src.kind === "futures"
     ? `Binance Futures tidak bisa dihubungi dari jaringan Anda, jadi data diambil dari ${src.name} (kontrak perpetual USDT). Harganya bisa sedikit beda dari Binance. Timeframe 1 detik tidak tersedia.`
-    : `Binance Futures dan Bybit tidak bisa dihubungi dari jaringan Anda, jadi data diambil dari ${src.name}. Harga Spot bisa sedikit beda dari harga Futures. Timeframe 1 detik tidak tersedia.`;
+    : `Binance Futures dan bursa futures lain tidak bisa dihubungi dari jaringan Anda, jadi data diambil dari ${src.name}. Harga Spot bisa sedikit beda dari harga Futures. Timeframe 1 detik tidak tersedia.`;
 }
+onSourceChange(() => { S.offlineSince = null; showSource(); });
 
 function ensureSolo(sym) {
   if (!dataSource()?.aggTrades) return Promise.reject(new Error(`Candle 1 detik hanya tersedia dari Binance Futures (sekarang memakai ${dataSource()?.name ?? "sumber lain"})`));
@@ -376,20 +428,29 @@ function startLive() {
     if (S.tf !== SOLO_TF || document.hidden) return;
     try { await load(S.sel, SOLO_TF); renderAll(); } catch (e) { console.warn(e); }
   }, 2000);
-  setInterval(async () => {
-    try {
-      const t = await fetchTickers();
-      S.prevPrices = { ...S.prices };
-      for (const x of t) if (S.info[x.symbol]) S.prices[x.symbol] = +x.price;
-      updateLive();
-    } catch (e) { console.warn(e); }
-  }, 2000);
-  setInterval(async () => {
-    try {
-      const fresh = await topSymbols(CONFIG.TOP_COINS_FAST);
-      for (const f of fresh) if (S.info[f.symbol]) S.info[f.symbol].change = f.change;
-    } catch (e) { console.warn(e); }
-  }, 60e3);
+  // Interval berikut dilewati kalau putaran sebelumnya belum selesai (supaya permintaan tidak menumpuk saat jaringan lambat
+  // atau saat pembatas kecepatan sedang menahan permintaan).
+  const every = (ms, fn) => { let busy = false; setInterval(async () => { if (busy) return; busy = true; try { await fn(); } catch (e) { console.warn(e); } finally { busy = false; } }, ms); };
+  every(2000, async () => {
+    const t = await fetchTickers();
+    S.prevPrices = { ...S.prices };
+    for (const x of t) if (S.info[x.symbol]) S.prices[x.symbol] = +x.price;
+    updateLive();
+  });
+  every(60e3, async () => {
+    const fresh = await topSymbols(CONFIG.TOP_COINS_FAST);
+    for (const f of fresh) if (S.info[f.symbol]) S.info[f.symbol].change = f.change;
+  });
+  // Data dari simpanan browser (sumber sempat putus): coba ambil ulang tiap 30 detik sampai live lagi.
+  every(30e3, async () => {
+    if (!S.stale.size) return showSource();
+    const keys = [...S.stale].map((k) => k.split("|"));
+    // Timeframe tren (4 jam) dulu, karena 1 jam memakai filter tren 4 jam.
+    keys.sort((a, b) => (b[1] === CONFIG.TREND_FILTER) - (a[1] === CONFIG.TREND_FILTER));
+    await pool(keys.map(([sym, tf]) => () => load(sym, tf)), 4);
+    showSource();
+    renderAll();
+  });
   // Ambil ulang candle saat sebuah timeframe tutup (sinyal baru hanya muncul di saat itu).
   setInterval(async () => {
     const changed = REFRESH_TFS.filter((tf) => tf !== SOLO_TF && Math.floor((Date.now() - 4000) / INTERVAL_MS[tf]) !== lastClose[tf]);

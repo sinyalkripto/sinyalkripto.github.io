@@ -11,7 +11,8 @@ BTC 1 jam (EMA 20 vs EMA 50), dan timeframe 1m/3m dimatikan. Sejak tahap 8, siny
 searah di candle yang sama, dan TP 1 jam 0,75 ATR (BTC/ETH/BNB tetap 1,25 ATR, tanpa konsensus). Sejak tahap 9, sinyal
 4 jam dilewati kalau dalam 10 candle terakhir ada lonjakan volume lebih dari 8x rata-rata (koin baru dipompa atau didump). Sejak
 tahap 10, 5m/15m/30m dan sinyal 4 jam dimatikan (rugi di uji historis, sumber hampir semua SL 14–20 Nov) dan token saham yang lolos diblokir.
-Sejak tahap 11, 1 jam memantau 100 koin (±6 sinyal/hari).
+Sejak tahap 11, 1 jam memantau 100 koin (±6 sinyal/hari). Sejak tahap 12, konsensus 1 jam cukup 2 koin (±8,5 sinyal/hari) dan
+situs punya 7 sumber data cadangan, pembatas kecepatan, dan simpanan data di browser supaya tidak "down".
 
 ## Strategi: pullback searah tren (+ breakout-retest di 1 jam)
 
@@ -420,6 +421,43 @@ Koin 101–125 hampir tidak menambah sinyal (banyak yang datanya pendek). TP 1 A
 koin peringkat 61–100 lebih liar dan sedikit lebih sering kena SL. Situs juga memuat 100 koin (1 jam + 4 jam), jadi pertama kali dibuka
 sedikit lebih lama. Versi konsensus 2 bisa dipakai dengan mengubah `CONSENSUS`.
 
+### Tahap 12: situs tidak lagi "down" + sinyal lebih banyak (23 Nov 2026)
+
+Keluhan: situs sering tidak tersambung dan sinyal tidak pernah muncul. Penyebab yang ditemukan di kode:
+
+1. **Kena batas API Binance.** Sejak tahap 11 situs memuat 100 koin x (1 jam + 4 jam) x 1500 candle sekaligus. Di Binance Futures
+   1500 candle berbobot 10, jadi satu kali buka halaman ±2000 bobot dalam waktu kurang dari semenit (batasnya 2400 per IP).
+   Memuat ulang halaman (atau dua tab) langsung kena HTTP 429, lalu 418 (IP diblokir sementara). Koin yang gagal dimuat tidak
+   ikut dihitung di filter konsensus, jadi sinyal 1 jam hampir tidak pernah lolos.
+2. **Sumber cadangan terlalu sedikit dan tidak pernah diganti.** Sumber dipilih sekali saat halaman dibuka (cukup `ping` yang
+   berhasil). Kalau sesudah itu sumbernya gagal atau kena batas, semua permintaan tetap ke sumber yang sama. Di Indonesia
+   binance.com sering diblokir ISP, dan Bybit global bisa menolak IP Indonesia sejak ada Bybit Indonesia (Jul 2026).
+
+Perbaikan (`engine.js`, `app.js`, `cache.js`):
+
+- Sumber data: Binance Futures, Bybit (2 domain), **OKX, Bitget, Gate** (kontrak perpetual USDT), Binance Spot, **Hyperliquid**.
+  Semua dicoba bersamaan, dipakai yang paling atas yang menjawab.
+- **Pindah sumber otomatis**: tiap permintaan diulang sekali kalau gagal sementara. Kalau sumbernya kena batas (429/418),
+  diblokir (403/451), atau gagal 3 kali berturut-turut, sumber itu diistirahatkan (sesuai `Retry-After`, default 1 menit) dan
+  situs pindah ke sumber berikutnya tanpa dimuat ulang. Simbol yang tidak ada (HTTP 400) tidak membuat pindah sumber.
+- **Pembatas kecepatan per sumber** (`rateLimiter`): Binance Futures maksimal 1100 bobot/menit (separuh batas), bursa lain di
+  bawah batas masing-masing. Interval harga (2 detik) dan daftar koin (1 menit) dilewati kalau putaran sebelumnya belum selesai.
+- Candle per timeframe 1500 -> **1000** (bobot Binance 10 -> 5). Sinyal terakhir praktis tidak berubah (EMA 200 sudah stabil);
+  angka backtest di situs memakai riwayat yang lebih pendek.
+- **Simpanan di browser** (IndexedDB): candle terakhir disimpan per koin. Membuka lagi halaman cukup mengambil candle yang belum
+  ada (bobot 1 per koin). Kalau semua sumber gagal, sinyal tetap dihitung dari data tersimpan dengan peringatan "jangan masuk
+  posisi sebelum data kembali live", dan situs mencoba lagi tiap 30 detik. Tanpa data tersimpan, situs juga mencoba lagi tiap 30 detik.
+
+Dites dengan bursa tiruan (Node + Chromium): tiap sumber dipakai sendirian (format candle, urutan, jumlah), Binance kena 429 di
+tengah jalan lalu pindah ke OKX, gagal sementara lalu pulih, semua diblokir lalu pulih, dan muat ulang saat semua diblokir. Tidak bisa
+dites ke bursa sungguhan dari lingkungan pengujian (jaringannya memblokir semua bursa), jadi dukungan CORS OKX/Bitget/Gate/Hyperliquid
+belum dipastikan langsung; sumber yang menolak browser otomatis dilewati. Buka situs dengan `?debug` untuk melihat sumber yang dipakai.
+
+**Sinyal lebih banyak:** konsensus 1 jam 3 -> **2 koin** (versi yang sudah diuji di tahap 11, tabel di atas): 100 koin ±6 -> ±8,5
+sinyal/hari, PF latih 1,56 -> 1,38, PF uji 2,33 -> 1,89, trade rugi > 0,5% di uji 5% -> 6%. Daftar blokir, filter BTC, filter pola,
+TP/SL, dan timeframe yang dimatikan tidak berubah. Kembalikan `CONSENSUS` ke 3 kalau ingin sinyal lebih sedikit dengan PF lebih tinggi.
+Hasil live dicatat dengan versi `tahap12`, jadi bisa dibandingkan terpisah dari tahap 11.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam
@@ -434,6 +472,7 @@ Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV d
 
 - `engine.js`: logika sinyal, backtest, dan perkiraan waktu take profit.
 - `app.js`: tampilan, grafik (TradingView Lightweight Charts), analisis teknikal.
+- `cache.js`: simpanan candle dan daftar koin di browser (IndexedDB/localStorage).
 - `globe.js`: animasi bumi di halaman pembuka.
 - `riset/uji-strategi.mjs`: uji strategi di data historis.
 - `riset/unduh-data.py`: unduh candle Futures dari arsip resmi Binance (data.binance.vision lewat S3).
@@ -446,7 +485,8 @@ Uji ulang sendiri: `node riset/uji-strategi.mjs <folder-data-csv>` (format CSV d
 - `riset/freqtrade/`: strategi yang sama untuk freqtrade (cek silang backtest, bisa jalan tanpa akses API bursa).
 
 Semua data diambil langsung dari API publik oleh browser pengunjung. Urutan sumber: Binance Futures,
-lalu Bybit (kontrak perpetual USDT, api.bybit.com lalu api.bytick.com) kalau Binance diblokir di
-jaringan pengunjung, dan terakhir Binance Spot (data-api.binance.vision). Situs memberi tahu kalau
+lalu Bybit (kontrak perpetual USDT, api.bybit.com lalu api.bytick.com), OKX, Bitget, Gate, Binance Spot
+(data-api.binance.vision), dan terakhir Hyperliquid. Kalau sumber yang dipakai gagal atau kena batas, situs pindah sendiri
+ke sumber berikutnya (tahap 12). Situs memberi tahu kalau
 memakai sumber cadangan. Buka dengan `?debug` untuk melihat sumber mana yang berhasil.
 Tidak ada server, akun, atau API key. Bukan nasihat keuangan. Trading futures berisiko tinggi.

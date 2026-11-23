@@ -1,6 +1,6 @@
 // Riset jumlah koin: ambil riwayat panjang untuk koin bervolume terbesar, jalankan strategi
 // yang sama (engine.js), lalu ringkas sinyal per hari, win rate, dan profit factor per kelompok koin.
-import { CONFIG, SETUP_LABEL, analyze, applyConsensus, connect, isCryptoSymbol, signalCounts } from "./engine.js?v=20";
+import { CONFIG, SETUP_LABEL, SOURCES, analyze, applyConsensus, connect, isCryptoSymbol, signalCounts } from "./engine.js?v=21";
 
 const DAYS = 180;              // jendela evaluasi
 const N_COINS = 100;           // kandidat koin teratas menurut volume
@@ -71,7 +71,8 @@ let RESULT = null;
 async function run() {
   $("#go").disabled = true;
   status("Menghubungkan ke sumber data…");
-  const src = await connect();
+  // Halaman riset mengambil riwayat panjang per halaman, hanya untuk format Binance dan Bybit.
+  const src = await connect(undefined, SOURCES.filter((s) => /binance|bybit|bytick/.test(s.base)));
   const tickers = await src.tickers24();
   const ok = await src.symbols();
   const coins = tickers
