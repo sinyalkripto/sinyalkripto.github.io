@@ -43,7 +43,10 @@ export const CONFIG = {
   // 4 jam juga dimatikan (hasil live 14–20 Nov: 16 trade, PF 0,38, −59%, termasuk short HUMA −17,6%; uji historis PF ±1,05).
   // Candle 4 jam tetap dimuat dan diperbarui untuk filter tren 1 jam (TREND_FILTER), hanya sinyalnya yang tidak ditampilkan.
   TIMEFRAMES: ["1s", "1h"],
-  CANDLE_LIMIT: 1500,
+  // Tahap 12 (23 Nov 2026): 1500 -> 1000 candle. Di Binance Futures 1000 candle berbobot 5 (1500: 10), jadi memuat 100 koin
+  // tidak lagi mendekati batas 2400 bobot/menit (penyebab situs "down" saat dimuat ulang). Sinyal terakhir tidak berubah
+  // (EMA 200 sudah stabil jauh sebelum 1000 candle); angka backtest di situs memakai riwayat yang lebih pendek.
+  CANDLE_LIMIT: 1000,
   // Timeframe kecil cukup 1000 candle (lebih ringan untuk batas API).
   FAST_LIMIT: 1000,
   // Strategi "pullback searah tren" (diuji di data 6 bulan, 19 koin; lihat README):
@@ -153,14 +156,17 @@ export const CONFIG = {
   // Tahap 8 (README, 60 koin teratas + 48 koin lain, Des 2025–18 Nov 2026): minimal 3 koin + TP 0,75 ATR menaikkan
   // win rate 1 jam (impas tidak dihitung) dari 74%/82% ke 85%/90% (latih/uji) dan PF dari 1,21/1,73 ke 1,74/2,25;
   // sinyal turun dari ±9,5 ke ±4 per hari.
-  CONSENSUS: { "1h": 3 },
+  // Tahap 12 (23 Nov 2026): 3 -> 2 koin supaya sinyal lebih banyak. Di uji tahap 11 (100 koin, latih Des 2025–Jul 2026, uji Agu–19 Nov
+  // 2026): ±6 -> ±8,5 sinyal/hari, PF latih 1,56 -> 1,38, PF uji 2,33 -> 1,89, trade rugi > 0,5% 5% -> 6%. Kembalikan ke 3 kalau
+  // ingin lebih sedikit sinyal dengan PF lebih tinggi.
+  CONSENSUS: { "1h": 2 },
   EXIT_ON_SELL_SIGNAL: false,
   FEE_PERCENT: 0.05,
 };
 
 const C = CONFIG;
 // Versi aturan sinyal; dicatat di tiap trade "Hasil live" supaya evaluasi bisa dipisah per versi.
-export const ENGINE_VERSION = "tahap11";
+export const ENGINE_VERSION = "tahap12";
 export const INTERVAL_MS = { "1s": 1e3, "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------
@@ -491,71 +497,123 @@ export function tpTiming(closedTrades) {
 // ---------- Data pasar ----------
 
 const toCandles = (raw) => raw.map((k) => ({
-  time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5],
+  time: +k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5],
 }));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Catatan percobaan koneksi (untuk diagnosis: buka situs dengan ?debug). */
 export const attempts = [];
+const note = (a) => { attempts.push(a); if (attempts.length > 80) attempts.splice(0, attempts.length - 80); };
 
-async function fetchWithTimeout(fetchImpl, url, ms) {
+async function fetchWithTimeout(fetchImpl, url, ms, init) {
   const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = ctl && setTimeout(() => ctl.abort(), ms);
-  try { return await fetchImpl(url, ctl ? { signal: ctl.signal } : undefined); } finally { if (timer) clearTimeout(timer); }
+  try { return await fetchImpl(url, ctl ? { ...init, signal: ctl.signal } : init); } finally { if (timer) clearTimeout(timer); }
 }
 
-async function fetchJson(url, fetchImpl = globalThis.fetch, ms = 15000) {
+/** GET (atau POST kalau `body` diisi) JSON. Error membawa `status` (HTTP) supaya bisa dibedakan: diblokir, kena batas, atau simbol salah. */
+async function fetchJson(url, fetchImpl = globalThis.fetch, ms = 15000, body) {
   const t0 = Date.now();
+  const init = body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined;
   try {
-    const resp = await fetchWithTimeout(fetchImpl, url, ms);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const resp = await fetchWithTimeout(fetchImpl, url, ms, init);
+    if (!resp.ok) {
+      const e = new Error(`HTTP ${resp.status}`);
+      e.status = resp.status;
+      const ra = +resp.headers?.get?.("retry-after");
+      if (ra > 0) e.retryAfter = ra * 1000;
+      throw e;
+    }
     const json = await resp.json();
-    if (attempts.length < 60) attempts.push({ url, ok: true, ms: Date.now() - t0 });
+    note({ url, ok: true, ms: Date.now() - t0 });
     return json;
   } catch (e) {
     const msg = e.name === "AbortError" ? "timeout (tidak ada jawaban)" : String(e.message || e);
-    attempts.push({ url, ok: false, ms: Date.now() - t0, error: msg });
-    throw new Error(msg);
+    note({ url, ok: false, ms: Date.now() - t0, error: msg });
+    const err = new Error(msg);
+    err.status = e.status; err.retryAfter = e.retryAfter;
+    throw err;
   }
 }
 
+/**
+ * Pembatas kecepatan per sumber: total "bobot" permintaan dalam `windowMs` tidak lebih dari `capacity`.
+ * Dulu 100 koin x 2 timeframe x 1500 candle dimuat sekaligus (±2000 bobot/menit di Binance, batasnya 2400), jadi
+ * memuat ulang halaman langsung kena HTTP 429/418 (IP diblokir sementara) dan sinyal tidak pernah muncul.
+ */
+export function rateLimiter(capacity, windowMs) {
+  const log = [];
+  let chain = Promise.resolve();
+  const take = (cost) => async () => {
+    for (;;) {
+      const now = Date.now();
+      while (log.length && log[0][0] <= now - windowMs) log.shift();
+      const used = log.reduce((a, x) => a + x[1], 0);
+      if (!log.length || used + cost <= capacity) { log.push([now, cost]); return; }
+      await sleep(log[0][0] + windowMs - now + 25);
+    }
+  };
+  return (cost = 1) => (chain = chain.then(take(cost), take(cost)));
+}
+
 // ---------- Sumber data ----------
-// Dicoba berurutan; yang pertama menjawab dipakai terus. Di beberapa jaringan (misalnya ISP di
-// Indonesia) domain binance.com diblokir, jadi ada cadangan: Bybit (kontrak perpetual USDT, harga
-// futures juga) dan terakhir Binance Spot lewat domain binance.vision.
+// Semua sumber dicoba bersamaan; dipakai yang paling atas di daftar yang menjawab. Kalau sumber yang dipakai berulang kali
+// gagal (diblokir, kena batas, putus), situs otomatis pindah ke sumber berikutnya tanpa perlu dimuat ulang.
+// Di beberapa jaringan (misalnya ISP di Indonesia) domain binance.com diblokir, dan Bybit global bisa menolak IP
+// Indonesia (sejak ada Bybit Indonesia), jadi cadangannya banyak: OKX, Bitget, Gate (semua kontrak perpetual USDT),
+// Binance Spot (binance.vision), dan terakhir Hyperliquid.
 
 const BYBIT_TF = { "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "4h": "240", "1d": "D" };
+const UPPER_TF = { "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1H", "4h": "4H", "1d": "1D" };
+
+/** Bobot permintaan klines Binance Futures menurut jumlah candle. */
+const binanceKlineWeight = (limit) => (limit < 100 ? 1 : limit < 500 ? 2 : limit <= 1000 ? 5 : 10);
 
 function binanceSource(name, base, kind, prefix) {
-  const get = (path, params, f) => fetchJson(`${base}${prefix}${path}?${new URLSearchParams(params)}`, f);
+  // Futures: batas 2400 bobot/menit per IP; dipakai paling banyak 1100 supaya ada sisa untuk tab lain / muat ulang.
+  // Spot (binance.vision): batas 6000/menit, klines bobot 2.
+  const limit = rateLimiter(kind === "spot" ? 3000 : 1100, 60e3);
+  const get = async (path, params, f, cost = 1) => {
+    await limit(cost);
+    return fetchJson(`${base}${prefix}${path}?${new URLSearchParams(params)}`, f);
+  };
   return {
     name, kind, base,
     probe: (f) => fetchJson(`${base}${prefix}/ping`, f, 7000),
-    klines: async (symbol, interval, limit, f) =>
-      toCandles(await get("/klines", { symbol, interval, limit: kind === "spot" ? Math.min(limit, 1000) : limit }, f)),
+    klines: async (symbol, interval, n, f) => {
+      const lim = kind === "spot" ? Math.min(n, 1000) : Math.min(n, 1500);
+      return toCandles(await get("/klines", { symbol, interval, limit: lim }, f, kind === "spot" ? 2 : binanceKlineWeight(lim)));
+    },
     // [{symbol, price, change(%), volume(USDT)}]
-    tickers24: async (f) => (await get("/ticker/24hr", {}, f))
+    tickers24: async (f) => (await get("/ticker/24hr", {}, f, kind === "spot" ? 80 : 40))
       .map((t) => ({ symbol: t.symbol, price: +t.lastPrice, change: +t.priceChangePercent, volume: +t.quoteVolume })),
-    prices: async (f) => (await get("/ticker/price", {}, f)).map((t) => ({ symbol: t.symbol, price: +t.price })),
+    prices: async (f) => (await get("/ticker/price", {}, f, kind === "spot" ? 4 : 2)).map((t) => ({ symbol: t.symbol, price: +t.price })),
     // Futures: kontrak perpetual USDT aktif. Spot: pasangan USDT aktif.
-    symbols: async (f) => new Set((await get("/exchangeInfo", {}, f)).symbols
+    symbols: async (f) => new Set((await get("/exchangeInfo", {}, f, kind === "spot" ? 20 : 1)).symbols
       .filter((x) => x.status === "TRADING" && x.quoteAsset === "USDT" && (kind === "spot" || x.contractType === "PERPETUAL"))
       .map((x) => x.symbol)),
-    aggTrades: kind === "futures" ? (params, f) => get("/aggTrades", params, f) : null,
+    aggTrades: kind === "futures" ? (params, f) => get("/aggTrades", params, f, 20) : null,
   };
 }
 
 function bybitSource(name, base) {
+  const limit = rateLimiter(100, 5e3); // batas 600 permintaan / 5 detik per IP
   const get = async (path, params, f) => {
+    await limit(1);
     const j = await fetchJson(`${base}/v5/market${path}?${new URLSearchParams({ category: "linear", ...params })}`, f);
-    if (j.retCode !== 0) throw new Error(`Bybit: ${j.retMsg}`);
+    if (j.retCode !== 0) {
+      const e = new Error(`Bybit: ${j.retMsg}`);
+      if (j.retCode === 10006 || j.retCode === 10018) e.status = 429; else if (j.retCode === 10001) e.status = 400;
+      throw e;
+    }
     return j.result;
   };
   return {
     name, kind: "futures", base,
-    probe: (f) => fetchJson(`${base}/v5/market/time`, f, 7000),
-    klines: async (symbol, interval, limit, f) => {
+    probe: (f) => get("/time", {}, f).then(() => true),
+    klines: async (symbol, interval, n, f) => {
       // Bybit: maks 1000 per permintaan, urutan terbaru dulu.
-      const r = await get("/kline", { symbol, interval: BYBIT_TF[interval], limit: Math.min(limit, 1000) }, f);
+      const r = await get("/kline", { symbol, interval: BYBIT_TF[interval], limit: Math.min(n, 1000) }, f);
       return toCandles(r.list.map((k) => [+k[0], k[1], k[2], k[3], k[4], k[5]]).reverse());
     },
     tickers24: async (f) => (await get("/tickers", {}, f)).list
@@ -568,27 +626,203 @@ function bybitSource(name, base) {
   };
 }
 
+// OKX: kontrak BTC-USDT-SWAP <-> BTCUSDT. Candle maks 300 per permintaan (diambil per halaman, terbaru dulu).
+function okxSource(name, base) {
+  const limit = rateLimiter(30, 2e3); // batas 40 permintaan / 2 detik untuk candle
+  const get = async (path, params, f) => {
+    await limit(1);
+    const j = await fetchJson(`${base}/api/v5${path}?${new URLSearchParams(params)}`, f);
+    if (j.code !== "0") { const e = new Error(`OKX: ${j.msg || j.code}`); e.status = j.code === "50011" ? 429 : 400; throw e; }
+    return j.data;
+  };
+  const inst = (symbol) => `${symbol.replace(/USDT$/, "")}-USDT-SWAP`;
+  const sym = (instId) => instId.replace(/-USDT-SWAP$/, "USDT");
+  const isUsdtSwap = (id) => /-USDT-SWAP$/.test(id);
+  return {
+    name, kind: "futures", base,
+    probe: (f) => get("/public/time", {}, f).then(() => true),
+    klines: async (symbol, interval, n, f) => {
+      let out = [], after = null;
+      while (out.length < n) {
+        const p = await get("/market/candles", { instId: inst(symbol), bar: UPPER_TF[interval], limit: 300, ...(after ? { after } : {}) }, f);
+        if (!p.length) break;
+        out = [...p.map((k) => [+k[0], k[1], k[2], k[3], k[4], k[6]]).reverse(), ...out];
+        after = p[p.length - 1][0];
+        if (p.length < 300) break;
+      }
+      return toCandles(out.slice(-n));
+    },
+    tickers24: async (f) => (await get("/market/tickers", { instType: "SWAP" }, f)).filter((t) => isUsdtSwap(t.instId))
+      .map((t) => ({ symbol: sym(t.instId), price: +t.last, change: (+t.last / +t.open24h - 1) * 100, volume: +t.volCcy24h * +t.last })),
+    prices: async (f) => (await get("/market/tickers", { instType: "SWAP" }, f)).filter((t) => isUsdtSwap(t.instId))
+      .map((t) => ({ symbol: sym(t.instId), price: +t.last })),
+    symbols: async (f) => new Set((await get("/public/instruments", { instType: "SWAP" }, f))
+      .filter((x) => x.state === "live" && isUsdtSwap(x.instId)).map((x) => sym(x.instId))),
+    aggTrades: null,
+  };
+}
+
+// Bitget: kontrak USDT-M, nama simbol sama dengan Binance (BTCUSDT). Maks 1000 candle per permintaan.
+function bitgetSource(name, base) {
+  const limit = rateLimiter(10, 1e3); // batas 20 permintaan / detik
+  const get = async (path, params, f) => {
+    await limit(1);
+    const j = await fetchJson(`${base}/api/v2${path}?${new URLSearchParams(params)}`, f);
+    if (j.code !== "00000") { const e = new Error(`Bitget: ${j.msg || j.code}`); e.status = j.code === "429" ? 429 : 400; throw e; }
+    return j.data;
+  };
+  const pt = { productType: "usdt-futures" };
+  return {
+    name, kind: "futures", base,
+    probe: (f) => get("/public/time", {}, f).then(() => true),
+    klines: async (symbol, interval, n, f) => {
+      const r = await get("/mix/market/candles", { ...pt, symbol, granularity: UPPER_TF[interval], limit: Math.min(n, 1000) }, f);
+      return toCandles(r.map((k) => [+k[0], k[1], k[2], k[3], k[4], k[5]]).sort((a, b) => a[0] - b[0]));
+    },
+    tickers24: async (f) => (await get("/mix/market/tickers", pt, f))
+      .map((t) => ({ symbol: t.symbol, price: +t.lastPr, change: +t.change24h * 100, volume: +(t.usdtVolume ?? t.quoteVolume) })),
+    prices: async (f) => (await get("/mix/market/tickers", pt, f)).map((t) => ({ symbol: t.symbol, price: +t.lastPr })),
+    symbols: async (f) => new Set((await get("/mix/market/contracts", pt, f))
+      .filter((x) => x.symbolStatus === "normal" && x.quoteCoin === "USDT").map((x) => x.symbol)),
+    aggTrades: null,
+  };
+}
+
+// Gate: kontrak BTC_USDT <-> BTCUSDT. Maks 2000 candle per permintaan, waktu dalam detik.
+function gateSource(name, base) {
+  const limit = rateLimiter(100, 10e3); // batas 200 permintaan / 10 detik
+  const get = async (path, params, f) => { await limit(1); return fetchJson(`${base}/api/v4${path}?${new URLSearchParams(params)}`, f); };
+  const contract = (symbol) => `${symbol.replace(/USDT$/, "")}_USDT`;
+  const sym = (c) => c.replace(/_USDT$/, "USDT");
+  return {
+    name, kind: "futures", base,
+    probe: (f) => get("/spot/time", {}, f).then(() => true),
+    klines: async (symbol, interval, n, f) => {
+      const r = await get("/futures/usdt/candlesticks", { contract: contract(symbol), interval, limit: Math.min(n, 1999) }, f);
+      // v = jumlah kontrak, sum = volume USDT; volume dalam koin ≈ sum / harga.
+      return r.map((k) => ({ time: k.t * 1000, open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.c > 0 ? +k.sum / +k.c : +k.v }));
+    },
+    tickers24: async (f) => (await get("/futures/usdt/tickers", {}, f)).filter((t) => /_USDT$/.test(t.contract))
+      .map((t) => ({ symbol: sym(t.contract), price: +t.last, change: +t.change_percentage, volume: +t.volume_24h_quote })),
+    prices: async (f) => (await get("/futures/usdt/tickers", {}, f)).filter((t) => /_USDT$/.test(t.contract))
+      .map((t) => ({ symbol: sym(t.contract), price: +t.last })),
+    symbols: async (f) => new Set((await get("/futures/usdt/contracts", {}, f))
+      .filter((x) => !x.in_delisting && /_USDT$/.test(x.name)).map((x) => sym(x.name))),
+    aggTrades: null,
+  };
+}
+
+// Hyperliquid (bursa terdesentralisasi, kontrak perpetual dalam USDC). Koin "kPEPE" = 1000PEPE. Cadangan terakhir:
+// batasnya 1200 bobot/menit (candle ±20–40 bobot), jadi memuat 100 koin butuh beberapa menit.
+function hyperliquidSource(name, base) {
+  const limit = rateLimiter(1000, 60e3);
+  const post = async (body, f, cost = 20) => { await limit(cost); return fetchJson(`${base}/info`, f, 15000, body); };
+  const coin = (symbol) => { const b = symbol.replace(/USDT$/, ""); return b.startsWith("1000") ? `k${b.slice(4)}` : b; };
+  const sym = (c) => `${c.startsWith("k") ? `1000${c.slice(1)}` : c}USDT`;
+  const meta = async (f) => {
+    const [m, ctx] = await post({ type: "metaAndAssetCtxs" }, f);
+    return m.universe.map((u, i) => ({ u, c: ctx[i] })).filter((x) => !x.u.isDelisted && /^k?[A-Z0-9]+$/.test(x.u.name));
+  };
+  return {
+    name, kind: "futures", base,
+    probe: (f) => post({ type: "allMids" }, f, 2).then(() => true),
+    klines: async (symbol, interval, n, f) => {
+      const n2 = Math.min(n, 5000), endTime = Date.now();
+      const r = await post({ type: "candleSnapshot", req: { coin: coin(symbol), interval, startTime: endTime - n2 * INTERVAL_MS[interval], endTime } }, f, 20 + Math.ceil(n2 / 60));
+      return r.map((k) => ({ time: +k.t, open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v }));
+    },
+    tickers24: async (f) => (await meta(f)).map(({ u, c }) => ({
+      symbol: sym(u.name), price: +(c.midPx ?? c.markPx), change: (+c.markPx / +c.prevDayPx - 1) * 100, volume: +c.dayNtlVlm,
+    })),
+    prices: async (f) => Object.entries(await post({ type: "allMids" }, f, 2)).filter(([c]) => !c.startsWith("@"))
+      .map(([c, p]) => ({ symbol: sym(c), price: +p })),
+    symbols: async (f) => new Set((await meta(f)).map(({ u }) => sym(u.name))),
+    aggTrades: null,
+  };
+}
+
 export const SOURCES = [
   binanceSource("Binance Futures", "https://fapi.binance.com", "futures", "/fapi/v1"),
   bybitSource("Bybit Futures", "https://api.bybit.com"),
   bybitSource("Bybit Futures", "https://api.bytick.com"),
+  okxSource("OKX Futures", "https://www.okx.com"),
+  bitgetSource("Bitget Futures", "https://api.bitget.com"),
+  gateSource("Gate Futures", "https://api.gateio.ws"),
   binanceSource("Binance Spot", "https://data-api.binance.vision", "spot", "/api/v3"),
+  hyperliquidSource("Hyperliquid", "https://api.hyperliquid.xyz"),
 ];
 let source = null;
-/** Sumber yang sedang dipakai: {name, kind} atau null kalau belum tersambung. */
+let sourceList = SOURCES;
+/** Sumber yang sedang dipakai: {name, kind, base} atau null kalau belum tersambung. */
 export const dataSource = () => source;
+const listeners = [];
+/** Dipanggil (dengan sumber baru) setiap kali situs pindah sumber data. */
+export const onSourceChange = (fn) => listeners.push(fn);
 
-/** Pilih sumber pertama yang menjawab. Dipanggil otomatis oleh semua fungsi data. */
-export async function connect(fetchImpl, sources = SOURCES) {
-  if (source) return source;
+/** Pilih sumber paling atas yang menjawab (semua dicoba bersamaan, jadi sumber yang diblokir tidak membuat lama). */
+let connecting = null, lastFail = null;
+export function connect(fetchImpl, sources = sourceList) {
+  if (source) return Promise.resolve(source);
+  // Baru saja semua sumber gagal: jangan langsung coba lagi untuk tiap permintaan (tunggu 15 detik).
+  if (lastFail && Date.now() - lastFail.at < 15e3) return Promise.reject(lastFail.err);
+  // Banyak permintaan bisa menunggu sambungan bersamaan: cukup satu putaran percobaan.
+  connecting ??= pickSource(fetchImpl, sources).finally(() => { connecting = null; });
+  return connecting;
+}
+async function pickSource(fetchImpl, sources) {
+  sourceList = sources;
+  const now = Date.now();
+  const usable = sources.filter((s) => !(s.coolUntil > now));
+  const list = usable.length ? usable : [...sources].sort((a, b) => a.coolUntil - b.coolUntil).slice(0, 1);
+  const probes = list.map((s) => s.probe(fetchImpl).then(() => null, (e) => e));
   const errors = [];
-  for (const src of sources) {
-    try { await src.probe(fetchImpl); source = src; return src; } catch (e) { errors.push(`${src.name} (${new URL(src.base).host}): ${e.message}`); }
+  for (let i = 0; i < list.length; i++) {
+    const err = await probes[i];
+    if (source) return source; // permintaan lain sudah memilih sumber
+    if (!err) {
+      source = list[i];
+      source.fails = 0;
+      lastFail = null;
+      listeners.forEach((fn) => { try { fn(source); } catch (e) {} });
+      return source;
+    }
+    errors.push(`${list[i].name} (${new URL(list[i].base).host}): ${err.message}`);
   }
-  throw new Error(`Semua sumber data gagal dihubungi: ${errors.join("; ")}`);
+  const err = new Error(`Semua sumber data gagal dihubungi: ${errors.join("; ")}`);
+  lastFail = { at: Date.now(), err };
+  throw err;
 }
 /** Untuk tes: lupakan sumber yang terpilih. */
-export const resetSource = () => { source = null; };
+export const resetSource = () => { source = null; connecting = null; lastFail = null; sourceList = SOURCES; SOURCES.forEach((s) => { s.coolUntil = 0; s.fails = 0; }); };
+
+// Kesalahan "permanen" (simbol tidak ada di bursa ini, parameter salah): tidak perlu diulang dan bukan alasan pindah sumber.
+const isPermanent = (e) => e.status === 400 || e.status === 404;
+
+/**
+ * Jalankan `op(sumber)` dengan pengaman: diulang sekali kalau gagal sementara; kalau sumber kena batas (429/418),
+ * diblokir (403/451), atau gagal beberapa kali berturut-turut, sumber itu diistirahatkan dan situs pindah ke sumber berikutnya.
+ */
+export async function withSource(op, fetchImpl, tries = 4) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    const src = await connect(fetchImpl);
+    try {
+      const r = await op(src);
+      src.fails = 0;
+      return r;
+    } catch (e) {
+      last = e;
+      if (isPermanent(e)) throw e;
+      src.fails = (src.fails || 0) + 1;
+      const hard = e.status === 429 || e.status === 418 || e.status === 403 || e.status === 451;
+      if (hard || src.fails >= 3) {
+        src.coolUntil = Date.now() + (e.retryAfter || (e.status === 418 ? 5 * 60e3 : e.status === 403 || e.status === 451 ? 30 * 60e3 : 60e3));
+        if (source === src) source = null;
+      } else await sleep(400 * (i + 1));
+    }
+  }
+  throw last;
+}
 
 /** Jumlah candle per timeframe. */
 export const candleLimit = (interval) => (INTERVAL_MS[interval] < INTERVAL_MS["15m"] ? C.FAST_LIMIT : C.CANDLE_LIMIT);
@@ -596,10 +830,10 @@ export const candleLimit = (interval) => (INTERVAL_MS[interval] < INTERVAL_MS["1
 /** Candle yang sudah close + candle yang sedang berjalan (terpisah). */
 export async function fetchKlines(symbol, interval, limit = candleLimit(interval), fetchImpl) {
   if (interval === "1s") return splitLive(await fetchTradeCandles(symbol, fetchImpl));
-  const src = await connect(fetchImpl);
-  return splitLive(await src.klines(symbol, interval, limit, fetchImpl));
+  return splitLive(await withSource((src) => src.klines(symbol, interval, limit, fetchImpl), fetchImpl));
 }
 const splitLive = (all) => ({ closed: all.slice(0, -1), live: all[all.length - 1] });
+
 
 // ---------- Candle 1 detik ----------
 // Binance Futures tidak punya kline 1 detik, jadi candle 1 detik dirakit sendiri dari
@@ -637,18 +871,19 @@ export function candlesFromMap(map, step = 1000, maxCandles = C.FAST_LIMIT, now 
 }
 
 /** Riwayat transaksi terbaru (maks `pages` x 1000 transaksi) -> Map candle 1 detik. */
+
+/** Riwayat transaksi terbaru (maks `pages` x 1000 transaksi) -> Map candle 1 detik. */
 export async function fetchTradeMap(symbol, fetchImpl, pages = 10) {
   const src = await connect(fetchImpl);
   if (!src.aggTrades) throw new Error(`Candle 1 detik hanya tersedia dari Binance Futures (sekarang memakai ${src.name})`);
-  const getJson = (_path, params, f) => src.aggTrades(params, f);
   const map = new Map();
-  let batch = await getJson("/aggTrades", { symbol, limit: 1000 }, fetchImpl);
+  let batch = await src.aggTrades({ symbol, limit: 1000 }, fetchImpl);
   for (let i = 0; batch.length; i++) {
     batch.forEach((t) => addTrade(map, t));
     if (i + 1 >= pages || map.size >= C.FAST_LIMIT) break;
     const fromId = Math.max(0, batch[0].a - 1000);
     if (fromId === batch[0].a) break;
-    batch = (await getJson("/aggTrades", { symbol, fromId, limit: 1000 }, fetchImpl)).filter((t) => t.a < batch[0].a);
+    batch = (await src.aggTrades({ symbol, fromId, limit: 1000 }, fetchImpl)).filter((t) => t.a < batch[0].a);
   }
   return map;
 }
@@ -658,7 +893,7 @@ async function fetchTradeCandles(symbol, fetchImpl) {
 
 /** Kontrak perpetual USDT yang sedang aktif (pasangan USDT kalau sumbernya Spot): Set nama simbol. */
 export async function fetchPerpetuals(fetchImpl) {
-  return (await connect(fetchImpl)).symbols(fetchImpl);
+  return withSource((src) => src.symbols(fetchImpl), fetchImpl);
 }
 
 /** Koin kripto biasa: bukan token saham (NVDAB, TSLAB, …) dan nama simbol ASCII. */
@@ -670,9 +905,8 @@ export function isCryptoSymbol(symbol) {
 
 /** N kontrak perpetual USDT dengan volume 24 jam terbesar, tanpa stablecoin (CONFIG.EXCLUDE), koin yang diblokir (CONFIG.BLOCKLIST) dan token saham. */
 export async function topSymbols(n = C.TOP_COINS, fetchImpl) {
-  const src = await connect(fetchImpl);
-  const tickers = await src.tickers24(fetchImpl);
-  const perps = await src.symbols(fetchImpl);
+  // Ticker dan daftar kontrak harus dari sumber yang sama (nama simbol tiap bursa bisa beda).
+  const [tickers, perps] = await withSource((src) => Promise.all([src.tickers24(fetchImpl), src.symbols(fetchImpl)]), fetchImpl);
   const top = tickers
     .filter((t) => isCryptoSymbol(t.symbol) && perps.has(t.symbol) && t.volume > 0)
     .sort((a, b) => b.volume - a.volume)
@@ -683,8 +917,9 @@ export async function topSymbols(n = C.TOP_COINS, fetchImpl) {
 
 /** Harga terakhir semua simbol: [{symbol, price}]. */
 export async function fetchTickers(fetchImpl) {
-  return (await connect(fetchImpl)).prices(fetchImpl);
+  return withSource((src) => src.prices(fetchImpl), fetchImpl);
 }
+
 
 export const tradeUrl = (symbol) => `https://www.binance.bh/en/futures/${symbol}`;
 
