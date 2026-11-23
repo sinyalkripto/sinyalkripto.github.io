@@ -458,6 +458,14 @@ sinyal/hari, PF latih 1,56 -> 1,38, PF uji 2,33 -> 1,89, trade rugi > 0,5% di uj
 TP/SL, dan timeframe yang dimatikan tidak berubah. Kembalikan `CONSENSUS` ke 3 kalau ingin sinyal lebih sedikit dengan PF lebih tinggi.
 Hasil live dicatat dengan versi `tahap12`, jadi bisa dibandingkan terpisah dari tahap 11.
 
+### Tahap 13: timeframe lain ditampilkan lagi (24 Nov 2026)
+
+Permintaan pengguna: ada timeframe selain 1 jam. 5m, 15m, 30m, dan 4 jam dihidupkan lagi (`CONFIG.TIMEFRAMES`), ditandai
+**eksperimen** (tanda * di tombol timeframe). Aturannya sama dengan sebelum tahap 10, tanpa riset baru. **Catatan jujur:** di uji
+Agu–19 Nov 2026 PF-nya 0,84–0,86 (5m), 0,82–0,92 (15m), 0,78–1,13 (30m), dan 4 jam impas di uji historis (PF ±1,05) tapi rugi
+di live 14–20 Nov. Timeframe ini yang jadi sumber hampir semua SL minggu itu. 1 jam tetap timeframe utama. 1m/3m tetap mati.
+Hasil live dicatat dengan versi `tahap13` dan dipisah per timeframe, jadi bisa dievaluasi lagi.
+
 ## Di situs
 
 - Timeframe 1 jam ditandai **utama** dan jadi default (grafik dan daftar sinyal). Timeframe di bawah 1 jam

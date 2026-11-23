@@ -1,6 +1,6 @@
 import {
   CONFIG, INTERVAL_MS, addTrade, analyze, attempts, baseAsset, candleLimit, candlesFromMap, dataSource, onSourceChange, fetchKlines, fetchTradeMap, fetchTickers, sides, topSymbols, tradeUrl, usesFilter, usesBtcFilter, ENGINE_VERSION, signalCounts, applyConsensus, SETUP_LABEL, setupsFor, exitFor,
-} from "./engine.js?v=21";
+} from "./engine.js?v=22";
 import { cacheGet, cachePut, symbolsGet, symbolsPut } from "./cache.js?v=1";
 import { directionAccuracy, macd, rating, sma, stdev } from "./ta.js?v=5";
 import { polaName } from "./pola.js?v=1";
@@ -13,7 +13,7 @@ const TF_LABEL = { "1s": "1dt", "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m"
 // Timeframe utama: satu-satunya yang untung bersih di uji historis (lihat README).
 const MAIN_TF = "1h";
 // Di bawah 1 jam biaya terlalu besar dibanding target; hasil uji belum untung bersih.
-const EXPERIMENTAL = new Set(["1s", "1m", "3m", "5m", "15m", "30m"]);
+const EXPERIMENTAL = new Set(["1s", "1m", "3m", "5m", "15m", "30m", "4h"]);
 const tfNote = (tf) => (tf === MAIN_TF ? "utama" : EXPERIMENTAL.has(tf) ? "eksperimen" : "");
 const tfTag = (tf) => (tf === MAIN_TF ? ' <span class="tag ok" style="font-size:11px;padding:1px 6px">utama</span>' : EXPERIMENTAL.has(tf) ? ' <span class="tag warn" style="font-size:11px;padding:1px 6px">eksperimen</span>' : "");
 const S = {

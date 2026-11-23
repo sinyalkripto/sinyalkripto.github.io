@@ -1,6 +1,6 @@
 // Riset jumlah koin: ambil riwayat panjang untuk koin bervolume terbesar, jalankan strategi
 // yang sama (engine.js), lalu ringkas sinyal per hari, win rate, dan profit factor per kelompok koin.
-import { CONFIG, SETUP_LABEL, SOURCES, analyze, applyConsensus, connect, isCryptoSymbol, signalCounts } from "./engine.js?v=21";
+import { CONFIG, SETUP_LABEL, SOURCES, analyze, applyConsensus, connect, isCryptoSymbol, signalCounts } from "./engine.js?v=22";
 
 const DAYS = 180;              // jendela evaluasi
 const N_COINS = 100;           // kandidat koin teratas menurut volume

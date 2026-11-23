@@ -42,7 +42,10 @@ export const CONFIG = {
   // 0,82–0,92 (15m), 0,78–1,13 (30m) di periode uji, ±31–33% trade kena SL penuh sejak Okt (1 jam: ±4%).
   // 4 jam juga dimatikan (hasil live 14–20 Nov: 16 trade, PF 0,38, −59%, termasuk short HUMA −17,6%; uji historis PF ±1,05).
   // Candle 4 jam tetap dimuat dan diperbarui untuk filter tren 1 jam (TREND_FILTER), hanya sinyalnya yang tidak ditampilkan.
-  TIMEFRAMES: ["1s", "1h"],
+  // Tahap 13 (24 Nov 2026, permintaan pengguna): 5m, 15m, 30m, dan 4 jam ditampilkan lagi sebagai "eksperimen" walau di uji
+  // historis PF-nya di bawah atau sekitar 1 (lihat tahap 10 di atas). 1m/3m tetap mati. 1 jam tetap timeframe utama.
+  // Hapus timeframe dari daftar ini untuk mematikannya lagi.
+  TIMEFRAMES: ["1s", "5m", "15m", "30m", "1h", "4h"],
   // Tahap 12 (23 Nov 2026): 1500 -> 1000 candle. Di Binance Futures 1000 candle berbobot 5 (1500: 10), jadi memuat 100 koin
   // tidak lagi mendekati batas 2400 bobot/menit (penyebab situs "down" saat dimuat ulang). Sinyal terakhir tidak berubah
   // (EMA 200 sudah stabil jauh sebelum 1000 candle); angka backtest di situs memakai riwayat yang lebih pendek.
@@ -166,7 +169,7 @@ export const CONFIG = {
 
 const C = CONFIG;
 // Versi aturan sinyal; dicatat di tiap trade "Hasil live" supaya evaluasi bisa dipisah per versi.
-export const ENGINE_VERSION = "tahap12";
+export const ENGINE_VERSION = "tahap13";
 export const INTERVAL_MS = { "1s": 1e3, "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
 
 // ---------- Indikator (sama dengan pandas ewm(adjust=False)) ----------
